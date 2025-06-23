@@ -229,7 +229,7 @@ const Navbar = () => {
               <p>{settings && settings.name ? settings.name : "Wora User"}</p>
             </TooltipContent>
           </Tooltip>
-          <div className="wora-border flex w-[4.5rem] flex-col items-center gap-10 rounded-2xl p-8">
+          <div className="wora-border flex w-18 flex-col items-center gap-10 rounded-2xl p-8">
             {navLinks.map((link) => (
               <Tooltip key={link.href} delayDuration={0}>
                 <TooltipTrigger>
@@ -298,7 +298,7 @@ const Navbar = () => {
                     onSelect={() => handleItemClick(item)}
                     className="text-black dark:text-white"
                   >
-                    <div className="flex h-full w-full items-center gap-2.5 gradient-mask-r-70">
+                    <div className="flex h-full w-full items-center gap-2.5 mask-r-from-70%">
                       {(item.type === "Playlist" || item.type === "Album") && (
                         <div className="relative h-12 w-12 overflow-hidden rounded-lg shadow-xl transition duration-300">
                           <Image
@@ -315,7 +315,7 @@ const Navbar = () => {
                         </div>
                       )}
                       <div>
-                        <p className="w-full overflow-hidden text-nowrap text-xs">
+                        <p className="w-full overflow-hidden text-xs text-nowrap">
                           {item.name}
                           <span className="ml-1 opacity-50">({item.type})</span>
                         </p>
@@ -333,7 +333,7 @@ const Navbar = () => {
               </CommandGroup>
             ) : (
               <div className="flex h-[325px] w-full items-center justify-center text-xs">
-                <div className="dark:bg.white/10 ml-2 rounded-lg bg-black/5 px-1.5 py-1 shadow-sm">
+                <div className="dark:bg.white/10 ml-2 rounded-lg bg-black/5 px-1.5 py-1 shadow-xs">
                   ⌘ / Ctrl + F
                 </div>
               </div>

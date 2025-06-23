@@ -37,11 +37,11 @@ const Lyrics: React.FC<LyricsProps> = React.memo(
 
     return (
       <div className="wora-border relative h-full w-full rounded-2xl bg-white/70 backdrop-blur-xl dark:bg-black/70">
-        <div className="absolute bottom-5 right-6 z-50 flex items-center gap-2">
+        <div className="absolute right-6 bottom-5 z-50 flex items-center gap-2">
           <Badge>{isSyncedLyrics ? "Synced" : "Unsynced"}</Badge>
         </div>
 
-        <div className="h-utility flex w-full items-center overflow-y-auto text-balance px-8 text-2xl font-medium gradient-mask-b-70-d">
+        <div className="h-utility mask flex w-full items-center overflow-y-auto mask-y-from-70% px-8 text-2xl font-medium text-balance">
           <div
             ref={lyricsRef}
             className="no-scrollbar h-full w-full py-[33vh]"
