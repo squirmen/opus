@@ -243,14 +243,13 @@ export const createPlaylist = async (data: any) => {
   return playlist;
 };
 
-export const deletePlaylist = async (data: any) => {
+export const deletePlaylist = async (data: { id: number }) => {
   await db.transaction(async (tx) => {
-    // 1) Remove all links in playlistSongs
+    // Remove all links in playlistSongs
     await tx.delete(playlistSongs).where(eq(playlistSongs.playlistId, data.id));
 
-    // 2) Now delete the playlist
+    // Now delete the playlist
     const result = await tx.delete(playlists).where(eq(playlists.id, data.id));
-
     if ("changes" in result && result.changes === 0) {
       throw new Error(`Playlist ${data.id} not found`);
     }
@@ -271,8 +270,6 @@ export const updatePlaylist = async (data: any) => {
 
   if (data.cover) {
     cover = data.data.cover;
-  } else {
-    cover = "/cover.png";
   }
 
   const playlist = await db

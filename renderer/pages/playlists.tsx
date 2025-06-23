@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+"use client";
+import React, { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Label } from "@/components/ui/label";
@@ -36,84 +37,65 @@ const formSchema = z.object({
 
 export default function Playlists() {
   const router = useRouter();
-  const [playlists, setPlaylists] = useState([]);
+  const [playlists, setPlaylists] = useState<any[]>([]);
   const [previewUrl, setPreviewUrl] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Fetch playlists on component mount
+  const form = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: { name: "", description: "", playlistCover: undefined },
+  });
+
   useEffect(() => {
-    window.ipc.invoke("getAllPlaylists").then((response) => {
-      setPlaylists(response);
-    });
-
-    // Listen for reset event from main process
-    const resetListener = window.ipc.on("resetPlaylistsState", () => {
-      // Refresh playlists data
-      window.ipc.invoke("getAllPlaylists").then((response) => {
-        setPlaylists(response);
-      });
-    });
-
+    const load = () =>
+      window.ipc.invoke("getAllPlaylists").then((resp) => setPlaylists(resp));
+    load();
+    const resetListener = window.ipc.on("resetPlaylistsState", load);
     return () => {
-      // Clean up event listener
       resetListener();
     };
   }, []);
 
-  // Clean up object URLs when component unmounts
   useEffect(() => {
     return () => {
-      if (previewUrl.startsWith("blob:")) {
-        URL.revokeObjectURL(previewUrl);
-      }
+      if (previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
 
   const createPlaylist = async (data: z.infer<typeof formSchema>) => {
     setLoading(true);
     let playlistCoverPath = null;
-
     try {
-      // Only process cover image if one was selected
-      if (
-        data.playlistCover &&
-        data.playlistCover instanceof FileList &&
-        data.playlistCover.length > 0
-      ) {
-        const file = data.playlistCover[0];
-        const fileData = await file.arrayBuffer();
-
+      const files = data.playlistCover as FileList | undefined;
+      if (files && files.length > 0) {
+        const file = files[0];
+        const buffer = await file.arrayBuffer();
         playlistCoverPath = await window.ipc.invoke("uploadPlaylistCover", {
           name: file.name,
-          data: Array.from(new Uint8Array(fileData)),
+          data: Array.from(new Uint8Array(buffer)),
         });
       }
-
-      const response = await window.ipc.invoke("createPlaylist", {
+      const resp = await window.ipc.invoke("createPlaylist", {
         name: data.name,
         description: data.description,
         cover: playlistCoverPath,
       });
-
       setDialogOpen(false);
-      router.push(`/playlists/${response.lastInsertRowid}`);
-    } catch (error) {
-      console.error("Error creating playlist:", error);
+      setPreviewUrl("");
+      form.reset();
+      router.push(`/playlists/${resp.lastInsertRowid}`);
+    } catch {
       toast(
         <div className="flex w-fit items-center gap-2 text-xs">
           <IconX className="text-red-500" stroke={2} size={16} />
           Failed to create playlist. Please try again.
-        </div>,
+        </div>
       );
     } finally {
       setLoading(false);
     }
   };
-
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
-  });
 
   return (
     <div className="flex flex-col gap-8">
@@ -128,20 +110,19 @@ export default function Playlists() {
           Create Playlist <IconPlus size={14} />
         </Button>
       </div>
-
       <div className="grid w-full grid-cols-5 gap-8">
-        {playlists.map((playlist) => (
-          <Link key={playlist.id} href={`/playlists/${playlist.id}`} passHref>
+        {playlists.map((pl) => (
+          <Link key={pl.id} href={`/playlists/${pl.id}`} passHref>
             <div className="group/album wora-border wora-transition rounded-2xl p-5 hover:bg-black/5 dark:hover:bg-white/10">
               <div className="relative flex flex-col justify-between">
                 <div className="relative w-full overflow-hidden rounded-xl pb-[100%] shadow-lg">
                   <Image
-                    alt={playlist.name || "Playlist Cover"}
+                    alt={pl.name || "Playlist Cover"}
                     src={
-                      playlist.id === 1
+                      pl.id === 1
                         ? "/favouritesCoverArt.png"
-                        : playlist.cover
-                          ? "wora://" + playlist.cover
+                        : pl.cover
+                          ? "wora://" + pl.cover
                           : "/coverArt.png"
                     }
                     fill
@@ -150,17 +131,14 @@ export default function Playlists() {
                   />
                 </div>
                 <div className="mt-8 flex w-full flex-col overflow-hidden">
-                  <p className="truncate text-sm font-medium">
-                    {playlist.name}
-                  </p>
-                  <p className="truncate opacity-50">{playlist.description}</p>
+                  <p className="truncate text-sm font-medium">{pl.name}</p>
+                  <p className="truncate opacity-50">{pl.description}</p>
                 </div>
               </div>
             </div>
           </Link>
         ))}
       </div>
-
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -169,54 +147,50 @@ export default function Playlists() {
               Add a new playlist to your library.
             </DialogDescription>
           </DialogHeader>
-
           <Form {...form}>
             <form
               onSubmit={form.handleSubmit(createPlaylist)}
               className="flex gap-4 text-xs"
             >
-              <div>
-                <Label
-                  className="wora-transition block cursor-pointer hover:opacity-50"
-                  htmlFor="playlistCover"
-                >
-                  <div className="relative h-36 w-36 overflow-hidden rounded-lg shadow-lg">
-                    <Image
-                      alt="Cover Preview"
-                      src={previewUrl || "/coverArt.png"}
-                      fill
-                      className="object-cover"
-                    />
-                  </div>
-                </Label>
-
-                <FormField
-                  control={form.control}
-                  name="playlistCover"
-                  render={({ field: { onChange, ...rest } }) => (
-                    <FormItem hidden className="w-full">
-                      <FormControl>
-                        <Input
-                          id="playlistCover"
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const files = e.target.files;
-                            if (files?.length) {
-                              onChange(files);
-                              const objectUrl = URL.createObjectURL(files[0]);
-                              setPreviewUrl(objectUrl);
-                            }
-                          }}
-                          {...rest}
+              <FormField
+                control={form.control}
+                name="playlistCover"
+                render={({ field: { onChange, value, ...rest } }) => (
+                  <FormItem>
+                    <Label
+                      htmlFor="playlistCover"
+                      className="wora-transition block cursor-pointer hover:opacity-50"
+                    >
+                      <div className="relative h-36 w-36 overflow-hidden rounded-lg shadow-lg">
+                        <Image
+                          alt="Cover Preview"
+                          src={previewUrl || "/coverArt.png"}
+                          fill
+                          className="object-cover"
                         />
-                      </FormControl>
-                      <FormMessage className="text-xs" />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
+                      </div>
+                    </Label>
+                    <FormControl>
+                      <Input
+                        id="playlistCover"
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const files = e.target.files;
+                          if (files?.length) {
+                            onChange(files);
+                            const url = URL.createObjectURL(files[0]);
+                            setPreviewUrl(url);
+                          }
+                        }}
+                        {...rest}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <div className="flex h-full w-full flex-col items-end justify-between gap-4">
                 <div className="flex w-full flex-col gap-2">
                   <FormField
@@ -244,8 +218,11 @@ export default function Playlists() {
                     )}
                   />
                 </div>
-
-                <Button className="w-fit justify-between text-xs" type="submit">
+                <Button
+                  className="w-fit justify-between text-xs"
+                  type="submit"
+                  disabled={loading}
+                >
                   Create Playlist
                   {loading ? (
                     <Spinner className="h-3.5 w-3.5" />
