@@ -1,3 +1,6 @@
+import { SimpleVolumeAnalyzer, VolumeInfo } from "./SimpleVolumeAnalyzer";
+import { SimpleSilenceDetector, SilenceInfo } from "./SimpleSilenceDetector";
+
 export interface CrossfadeTrack {
   id: number;
   filePath: string;
@@ -19,6 +22,8 @@ export class CrossfadeController {
     audio: HTMLAudioElement | null;
     isActive: boolean;
     isPlaying: boolean;
+    volumeInfo?: VolumeInfo;
+    silenceInfo?: SilenceInfo;
   } = {
     audio: null,
     isActive: true,
@@ -29,6 +34,8 @@ export class CrossfadeController {
     audio: HTMLAudioElement | null;
     isActive: boolean;
     isPlaying: boolean;
+    volumeInfo?: VolumeInfo;
+    silenceInfo?: SilenceInfo;
   } = {
     audio: null,
     isActive: false,
@@ -39,11 +46,15 @@ export class CrossfadeController {
   private volume: number = 1;
   private isMuted: boolean = false;
   private isDestroyed: boolean = false;
+  private enableAudioEnhancement: boolean = false;
 
   private timeUpdateInterval: NodeJS.Timeout | null = null;
   private crossfadeInProgress: boolean = false;
   private crossfadeStartTime: number | null = null;
   private crossfadePhase: "none" | "active" | "handoff" = "none";
+
+  private volumeAnalyzer: SimpleVolumeAnalyzer;
+  private silenceDetector: SimpleSilenceDetector;
 
   private onTrackEnd?: () => void;
   private onTimeUpdate?: (currentTime: number, duration: number) => void;
@@ -51,7 +62,10 @@ export class CrossfadeController {
   private onCrossfadeStart?: (nextTrack: CrossfadeTrack) => void;
   private onCrossfadeComplete?: () => void;
 
-  constructor() {}
+  constructor() {
+    this.volumeAnalyzer = new SimpleVolumeAnalyzer();
+    this.silenceDetector = new SimpleSilenceDetector();
+  }
 
   private handleError(error: Error): void {
     console.error("CrossfadeController error:", error);
@@ -192,6 +206,31 @@ export class CrossfadeController {
 
       // Create new audio element for voice1
       const audio = this.createAudioElement(track.filePath);
+      
+      if (this.enableAudioEnhancement) {
+        try {
+          // Analyze volume
+          const volumeInfo = await this.volumeAnalyzer.analyzeTrack(track.filePath);
+          this.voice1.volumeInfo = volumeInfo;
+          
+          // Detect silence
+          const silenceInfo = await this.silenceDetector.detectSilence(track.filePath);
+          this.voice1.silenceInfo = silenceInfo;
+          
+          const gain = volumeInfo.gainAdjustment;
+          const normalizedVolume = (this.isMuted ? 0 : this.volume) * gain;
+          audio.volume = Math.max(0, Math.min(1, normalizedVolume));
+          
+          if (silenceInfo.startTrim > 0.1) {
+            audio.currentTime = silenceInfo.startTrim;
+          }
+        } catch (error) {
+          console.warn('Audio enhancement failed, using defaults:', error);
+          audio.volume = this.isMuted ? 0 : this.volume;
+        }
+      } else {
+        audio.volume = this.isMuted ? 0 : this.volume;
+      }
 
       audio.addEventListener("error", (e) => {
         const errorMsg =
@@ -217,6 +256,101 @@ export class CrossfadeController {
     }
   }
 
+  async scheduleGaplessTransition(nextTrack: CrossfadeTrack): Promise<void> {
+    if (this.isDestroyed) {
+      throw new Error("Cannot start gapless transition in current state");
+    }
+
+    const inactiveVoice = this.getInactiveVoice();
+    
+    if (!inactiveVoice.audio || !inactiveVoice.audio.src.includes(encodeURIComponent(nextTrack.filePath))) {
+      await this.preloadNextTrack(nextTrack);
+    }
+
+    if (!inactiveVoice.audio) {
+      throw new Error("Failed to preload next track");
+    }
+
+    inactiveVoice.audio.volume = this.isMuted ? 0 : this.volume;
+    await inactiveVoice.audio.play();
+    inactiveVoice.isPlaying = true;
+
+    const activeVoice = this.getActiveVoice();
+    if (activeVoice.audio) {
+      activeVoice.audio.pause();
+      activeVoice.isPlaying = false;
+    }
+
+    inactiveVoice.isActive = true;
+    activeVoice.isActive = false;
+
+    this.onCrossfadeStart?.(nextTrack);
+    this.onCrossfadeComplete?.();
+  }
+
+  async preloadNextTrack(nextTrack: CrossfadeTrack): Promise<void> {
+    if (this.isDestroyed) return;
+
+    const inactiveVoice = this.getInactiveVoice();
+    
+    // If already preloaded with same track, skip
+    if (inactiveVoice.audio?.src.includes(encodeURIComponent(nextTrack.filePath))) {
+      return;
+    }
+
+    // Clean up any existing preloaded track
+    if (inactiveVoice.audio) {
+      inactiveVoice.audio.pause();
+      inactiveVoice.audio = null;
+    }
+
+    // Create and preload next track
+    const nextAudio = this.createAudioElement(nextTrack.filePath);
+    nextAudio.volume = 0; // Start muted for preload
+    nextAudio.preload = "auto";
+    
+    if (this.enableAudioEnhancement) {
+      try {
+        const volumeInfo = await this.volumeAnalyzer.analyzeTrack(nextTrack.filePath);
+        inactiveVoice.volumeInfo = volumeInfo;
+        
+        const silenceInfo = await this.silenceDetector.detectSilence(nextTrack.filePath);
+        inactiveVoice.silenceInfo = silenceInfo;
+        
+        if (silenceInfo.startTrim > 0.1) {
+          nextAudio.currentTime = silenceInfo.startTrim;
+        }
+      } catch (error) {
+        console.warn('Audio enhancement analysis failed for preload:', error);
+      }
+    }
+    
+    inactiveVoice.audio = nextAudio;
+
+    // Set up event listeners for preloaded track
+    nextAudio.addEventListener("ended", () => {
+      if (inactiveVoice.isActive && !this.crossfadeInProgress) {
+        inactiveVoice.isPlaying = false;
+        this.onTrackEnd?.();
+      }
+    });
+
+    nextAudio.addEventListener("error", (e) => {
+      const errorMsg =
+        e.target?.error?.message || e.message || "Unknown error";
+      console.error("Preload error:", errorMsg);
+    });
+
+    // Wait for track to be ready
+    await new Promise<void>((resolve) => {
+      if (nextAudio.readyState >= 2) {
+        resolve();
+      } else {
+        nextAudio.addEventListener("canplay", () => resolve(), { once: true });
+      }
+    });
+  }
+
   async scheduleCrossfade(nextTrack: CrossfadeTrack): Promise<void> {
     if (this.isDestroyed || this.crossfadeInProgress) {
       throw new Error("Cannot start crossfade in current state");
@@ -229,53 +363,57 @@ export class CrossfadeController {
 
       const inactiveVoice = this.getInactiveVoice();
 
-      // Create next track audio element
-      const nextAudio = this.createAudioElement(nextTrack.filePath);
-      nextAudio.volume = 0; // Start silent
+      // If not preloaded, create the audio element
+      if (!inactiveVoice.audio || !inactiveVoice.audio.src.includes(encodeURIComponent(nextTrack.filePath))) {
+        const nextAudio = this.createAudioElement(nextTrack.filePath);
+        nextAudio.volume = 0; // Start silent
+        inactiveVoice.audio = nextAudio;
 
-      inactiveVoice.audio = nextAudio;
+        // Set up next track event listeners
+        nextAudio.addEventListener("ended", () => {
+          if (inactiveVoice.isActive && !this.crossfadeInProgress) {
+            inactiveVoice.isPlaying = false;
+            this.onTrackEnd?.();
+          }
+        });
 
-      // Set up next track event listeners
-      nextAudio.addEventListener("ended", () => {
-        if (inactiveVoice.isActive && !this.crossfadeInProgress) {
-          inactiveVoice.isPlaying = false;
-          this.onTrackEnd?.();
-        }
-      });
+        nextAudio.addEventListener("error", (e) => {
+          const errorMsg =
+            e.target?.error?.message || e.message || "Unknown error";
+          console.error("Next track error:", errorMsg);
+          this.crossfadeInProgress = false;
+          this.crossfadePhase = "none";
+          this.handleError(new Error(`Next track failed: ${errorMsg}`));
+        });
 
-      nextAudio.addEventListener("error", (e) => {
-        const errorMsg =
-          e.target?.error?.message || e.message || "Unknown error";
-        console.error("Next track error:", errorMsg);
-        this.crossfadeInProgress = false;
-        this.crossfadePhase = "none";
-        this.handleError(new Error(`Next track failed: ${errorMsg}`));
-      });
+        // Wait for next track to be ready
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error("Next track loading timeout"));
+          }, 5000);
 
-      // Wait for next track to be ready
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error("Next track loading timeout"));
-        }, 5000);
-
-        if (nextAudio.readyState >= 2) {
-          clearTimeout(timeout);
-          resolve();
-        } else {
-          nextAudio.addEventListener(
-            "canplay",
-            () => {
-              clearTimeout(timeout);
-              resolve();
-            },
-            { once: true },
-          );
-        }
-      });
+          if (nextAudio.readyState >= 2) {
+            clearTimeout(timeout);
+            resolve();
+          } else {
+            nextAudio.addEventListener(
+              "canplay",
+              () => {
+                clearTimeout(timeout);
+                resolve();
+              },
+              { once: true },
+            );
+          }
+        });
+      }
 
       // Start playing next track and begin crossfade
       try {
-        await nextAudio.play();
+        if (!inactiveVoice.audio) {
+          throw new Error("Next track audio not ready");
+        }
+        await inactiveVoice.audio.play();
         inactiveVoice.isPlaying = true;
         this.onCrossfadeStart?.(nextTrack);
       } catch (playError) {
@@ -349,7 +487,14 @@ export class CrossfadeController {
 
     const activeVoice = this.getActiveVoice();
     if (activeVoice.audio && !this.crossfadeInProgress) {
-      activeVoice.audio.volume = this.isMuted ? 0 : this.volume;
+      let finalVolume = this.isMuted ? 0 : this.volume;
+      
+      if (this.enableAudioEnhancement && activeVoice.volumeInfo) {
+        const gain = activeVoice.volumeInfo.gainAdjustment;
+        finalVolume = Math.max(0, Math.min(1, finalVolume * gain));
+      }
+      
+      activeVoice.audio.volume = finalVolume;
     }
   }
 
@@ -411,10 +556,19 @@ export class CrossfadeController {
     }
   }
 
+  setAudioEnhancement(enabled: boolean): void {
+    this.enableAudioEnhancement = enabled;
+    this.setVolume(this.volume);
+  }
+
   destroy(): void {
     this.isDestroyed = true;
 
     this.stop();
+    
+    if (this.volumeAnalyzer) {
+      this.volumeAnalyzer.destroy();
+    }
 
     this.onTrackEnd = undefined;
     this.onTimeUpdate = undefined;

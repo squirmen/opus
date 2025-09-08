@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import {
+  IconAdjustmentsHorizontal,
   IconArrowsShuffle2,
   IconBrandLastfm,
   IconCheck,
@@ -237,8 +238,15 @@ export const Player = () => {
   const crossfadeControllerRef = useRef<CrossfadeController | null>(null);
   const nextTrackQueuedRef = useRef<boolean>(false);
   const crossfadeActiveRef = useRef<boolean>(false);
+  const preloadedTrackIdRef = useRef<number | null>(null);
   const seekUpdateInterval = useRef<NodeJS.Timeout | null>(null);
   const volumeSliderRef = useRef<HTMLDivElement | null>(null);
+  const [audioEnhancement, setAudioEnhancement] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('audioEnhancement') === 'true';
+    }
+    return false;
+  });
 
   // Get player context and song metadata
   const {
@@ -262,6 +270,13 @@ export const Player = () => {
   } = usePlayer();
 
   const { metadata, lyrics, favourite } = useAudioMetadata(song?.filePath);
+
+  // Save audio enhancement preference
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('audioEnhancement', audioEnhancement.toString());
+    }
+  }, [audioEnhancement]);
 
   // Load Last.fm settings
   useEffect(() => {
@@ -502,7 +517,6 @@ export const Player = () => {
 
     const nextTrack = queue[currentIndex + 1];
     if (!nextTrack?.filePath) {
-      console.warn('Next track invalid or missing file path, using normal transition');
       nextSong();
       return;
     }
@@ -802,6 +816,7 @@ export const Player = () => {
     }
 
     crossfadeActiveRef.current = false;
+    preloadedTrackIdRef.current = null;
 
     // Reset seek position immediately when song changes
     setSeekPosition(0);
@@ -810,11 +825,13 @@ export const Player = () => {
     if (!song?.filePath) return;
 
     if (!crossfadeControllerRef.current) {
-      console.warn('CrossfadeController not initialized, creating new instance');
       crossfadeControllerRef.current = new CrossfadeController();
     }
 
     const controller = crossfadeControllerRef.current;
+    
+    // Apply audio enhancement setting
+    controller.setAudioEnhancement(audioEnhancement);
     
     const crossfadeTrack: CrossfadeTrack = {
       id: song.id,
@@ -841,17 +858,56 @@ export const Player = () => {
       onTimeUpdate: (currentTime: number, duration: number) => {
         setSeekPosition(currentTime);
         
-        // Trigger crossfade when approaching end of song
-        if (crossfade && currentIndex < queue.length - 1 && !nextTrackQueuedRef.current) {
+        // Preload next track when 10 seconds from end (for gapless playback)
+        if (currentIndex < queue.length - 1) {
           const timeRemaining = duration - currentTime;
-          // Trigger crossfade when we reach the crossfade point (more generous window)
-          if (timeRemaining <= crossfadeDuration + 0.5 && timeRemaining > 0.5) {
-            nextTrackQueuedRef.current = true;
-            handleNextSongWithCrossfade().catch((error) => {
-              console.error('Crossfade failed, falling back to normal transition:', error);
-              nextTrackQueuedRef.current = false;
-              nextSong();
+          const nextTrack = queue[currentIndex + 1];
+          
+          // Preload at 10 seconds before end (or halfway through if song is short)
+          const preloadTime = Math.min(10, duration / 2);
+          if (timeRemaining <= preloadTime && timeRemaining > preloadTime - 0.5 && 
+              nextTrack?.filePath && preloadedTrackIdRef.current !== nextTrack.id) {
+            const preloadTrack: CrossfadeTrack = {
+              id: nextTrack.id,
+              filePath: nextTrack.filePath,
+              duration: nextTrack.duration
+            };
+            preloadedTrackIdRef.current = nextTrack.id;
+            controller.preloadNextTrack(preloadTrack).catch((error) => {
+              console.error('Failed to preload next track:', error);
+              preloadedTrackIdRef.current = null;
             });
+          }
+          
+          // Trigger crossfade or gapless transition when approaching end
+          if (!nextTrackQueuedRef.current) {
+            if (crossfade && timeRemaining <= crossfadeDuration + 0.5 && timeRemaining > 0.5) {
+              // Crossfade transition
+              nextTrackQueuedRef.current = true;
+              handleNextSongWithCrossfade().catch((error) => {
+                console.error('Crossfade failed, falling back to normal transition:', error);
+                nextTrackQueuedRef.current = false;
+                nextSong();
+              });
+            } else if (!crossfade && timeRemaining <= 0.1 && timeRemaining > 0) {
+              // Gapless transition (no crossfade)
+              nextTrackQueuedRef.current = true;
+              const gaplessTrack: CrossfadeTrack = {
+                id: nextTrack.id,
+                filePath: nextTrack.filePath,
+                duration: nextTrack.duration
+              };
+              controller.scheduleGaplessTransition(gaplessTrack)
+                .then(() => {
+                  nextSong();
+                  nextTrackQueuedRef.current = false;
+                })
+                .catch((error) => {
+                  console.error('Gapless transition failed:', error);
+                  nextTrackQueuedRef.current = false;
+                  nextSong();
+                });
+            }
           }
         }
       },
@@ -901,9 +957,8 @@ export const Player = () => {
         clearInterval(seekUpdateInterval.current);
       }
     };
-  }, [song, crossfadeDuration, volume, isMuted, crossfade, currentIndex, queue]); // Dependencies for audio setup - including crossfade state
+  }, [song, crossfadeDuration, volume, isMuted, crossfade, currentIndex, queue, audioEnhancement]);
 
-  // Crossfade timing is now handled within the CrossfadeController's onTimeUpdate callback
 
   // Handle lyrics updates
   useEffect(() => {
@@ -1300,6 +1355,42 @@ export const Player = () => {
                     </ContextMenuItem>
                   </ContextMenuContent>
                 </ContextMenu>
+
+                <Tooltip delayDuration={0}>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setAudioEnhancement(!audioEnhancement);
+                      }}
+                      className="relative opacity-100!"
+                    >
+                      {!audioEnhancement ? (
+                        <IconAdjustmentsHorizontal
+                          stroke={2}
+                          size={16}
+                          className="wora-transition opacity-30! hover:opacity-100!"
+                        />
+                      ) : (
+                        <div>
+                          <IconAdjustmentsHorizontal stroke={2} size={16} />
+                          <div className="absolute -top-2 right-0 left-0 mx-auto h-[1.5px] w-2/3 rounded-full bg-black dark:bg-white"></div>
+                        </div>
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" sideOffset={25}>
+                    <p className="font-semibold">Audio Enhancement</p>
+                    {audioEnhancement ? (
+                      <div className="text-xs mt-1">
+                        <p>✓ Volume normalization</p>
+                        <p>✓ Silence trimming</p>
+                      </div>
+                    ) : (
+                      <p className="text-xs mt-1">Click to enable</p>
+                    )}
+                  </TooltipContent>
+                </Tooltip>
 
                 {lastFmSettings.enableLastFm &&
                   lastFmSettings.lastFmSessionKey &&
