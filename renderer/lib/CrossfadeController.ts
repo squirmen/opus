@@ -233,8 +233,9 @@ export class CrossfadeController {
       }
 
       audio.addEventListener("error", (e) => {
+        const target = e.target as HTMLAudioElement;
         const errorMsg =
-          e.target?.error?.message || e.message || "Unknown error";
+          target?.error?.message || e.message || "Unknown error";
         console.error("Audio loading error for:", track.filePath, errorMsg);
         this.handleError(new Error(`Failed to load audio: ${errorMsg}`));
       });
@@ -336,8 +337,9 @@ export class CrossfadeController {
     });
 
     nextAudio.addEventListener("error", (e) => {
+      const target = e.target as HTMLAudioElement;
       const errorMsg =
-        e.target?.error?.message || e.message || "Unknown error";
+        target?.error?.message || (e as any).message || "Unknown error";
       console.error("Preload error:", errorMsg);
     });
 
@@ -378,8 +380,9 @@ export class CrossfadeController {
         });
 
         nextAudio.addEventListener("error", (e) => {
+          const target = e.target as HTMLAudioElement;
           const errorMsg =
-            e.target?.error?.message || e.message || "Unknown error";
+            target?.error?.message || (e as any).message || "Unknown error";
           console.error("Next track error:", errorMsg);
           this.crossfadeInProgress = false;
           this.crossfadePhase = "none";
