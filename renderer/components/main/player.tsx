@@ -241,6 +241,8 @@ export const Player = () => {
   const preloadedTrackIdRef = useRef<number | null>(null);
   const seekUpdateInterval = useRef<NodeJS.Timeout | null>(null);
   const volumeSliderRef = useRef<HTMLDivElement | null>(null);
+  const volumeRef = useRef(volume);
+  const isMutedRef = useRef(isMuted);
   const [audioEnhancement, setAudioEnhancement] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('audioEnhancement') === 'true';
@@ -841,7 +843,7 @@ export const Player = () => {
 
     const crossfadeOptions = {
       crossfadeDuration,
-      volume: isMuted ? 0 : volume,
+      volume: isMutedRef.current ? 0 : volumeRef.current,
       onTrackEnd: () => {
         setIsPlaying(false);
         window.ipc.send("update-window", [false, null, null]);
@@ -957,8 +959,17 @@ export const Player = () => {
         clearInterval(seekUpdateInterval.current);
       }
     };
-  }, [song, crossfadeDuration, volume, isMuted, crossfade, currentIndex, queue, audioEnhancement]);
+  }, [song, crossfadeDuration, crossfade, currentIndex, queue, audioEnhancement]);
 
+  // Handle volume/mute changes without reloading the track
+  useEffect(() => {
+    volumeRef.current = volume;
+    isMutedRef.current = isMuted;
+    if (crossfadeControllerRef.current) {
+      crossfadeControllerRef.current.setVolume(volume);
+      crossfadeControllerRef.current.setMuted(isMuted);
+    }
+  }, [volume, isMuted]);
 
   // Handle lyrics updates
   useEffect(() => {
