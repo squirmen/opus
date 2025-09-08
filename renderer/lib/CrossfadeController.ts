@@ -51,9 +51,7 @@ export class CrossfadeController {
   private onCrossfadeStart?: (nextTrack: CrossfadeTrack) => void;
   private onCrossfadeComplete?: () => void;
 
-  constructor() {
-    // HTML Audio approach - no AudioContext needed
-  }
+  constructor() {}
 
   private handleError(error: Error): void {
     console.error("CrossfadeController error:", error);
@@ -150,38 +148,27 @@ export class CrossfadeController {
   }
 
   private completeCrossfade(): void {
-    console.log("Completing crossfade handoff");
-
-    // Switch active voices
     const currentActive = this.getActiveVoice();
     const currentInactive = this.getInactiveVoice();
-
-    // Stop current voice
     if (currentActive.audio) {
       currentActive.audio.pause();
       currentActive.isPlaying = false;
     }
 
-    // Make inactive voice the new active voice
     currentInactive.isActive = true;
     currentActive.isActive = false;
 
-    // Ensure new active voice is at full volume
     if (currentInactive.audio) {
       currentInactive.audio.volume = this.isMuted ? 0 : this.volume;
     }
 
-    // Reset crossfade state
     this.crossfadeInProgress = false;
     this.crossfadePhase = "none";
     this.crossfadeStartTime = null;
 
-    // Notify completion (if callback is provided)
     if (this.onCrossfadeComplete) {
       this.onCrossfadeComplete();
     }
-
-    console.log("Crossfade handoff completed successfully");
   }
 
   async loadTrack(
@@ -189,9 +176,6 @@ export class CrossfadeController {
     options: CrossfadeOptions,
   ): Promise<void> {
     if (this.isDestroyed) {
-      console.warn(
-        "Attempted to load track on destroyed CrossfadeController, ignoring",
-      );
       return;
     }
 
@@ -219,7 +203,6 @@ export class CrossfadeController {
       audio.addEventListener("ended", () => {
         if (this.voice1.isActive && !this.crossfadeInProgress) {
           this.voice1.isPlaying = false;
-          console.log("Track ended naturally");
           this.onTrackEnd?.();
         }
       });
@@ -229,7 +212,6 @@ export class CrossfadeController {
       this.voice1.isPlaying = false;
       this.voice2.isActive = false;
 
-      console.log("Track loaded successfully:", track.filePath);
     } catch (error) {
       this.handleError(error as Error);
     }
@@ -241,8 +223,9 @@ export class CrossfadeController {
     }
 
     try {
-      console.log("Starting seamless crossfade to:", nextTrack.filePath);
       this.crossfadeInProgress = true;
+      this.crossfadePhase = "active";
+      this.crossfadeStartTime = Date.now();
 
       const inactiveVoice = this.getInactiveVoice();
 
@@ -256,7 +239,6 @@ export class CrossfadeController {
       nextAudio.addEventListener("ended", () => {
         if (inactiveVoice.isActive && !this.crossfadeInProgress) {
           inactiveVoice.isPlaying = false;
-          console.log("Next track ended naturally");
           this.onTrackEnd?.();
         }
       });
@@ -295,19 +277,12 @@ export class CrossfadeController {
       try {
         await nextAudio.play();
         inactiveVoice.isPlaying = true;
-        // Mark the real start of the crossfade now that both tracks are playing
-        this.crossfadePhase = "active";
-        this.crossfadeStartTime = Date.now();
-        // Notify UI that crossfade is starting at the actual overlap
         this.onCrossfadeStart?.(nextTrack);
-        console.log("Next track started playing during crossfade");
       } catch (playError) {
         console.error("Failed to play next track:", playError);
         throw new Error(`Next track playback failed: ${playError.message}`);
       }
 
-      // The crossfade volume adjustment happens in the time update interval
-      console.log("Crossfade scheduled successfully");
     } catch (error) {
       this.crossfadeInProgress = false;
       this.crossfadePhase = "none";
@@ -327,7 +302,6 @@ export class CrossfadeController {
           .then(() => {
             activeVoice.isPlaying = true;
             this.startTimeUpdates();
-            console.log("Playback started");
           })
           .catch((error) => {
             this.handleError(error);
@@ -348,7 +322,6 @@ export class CrossfadeController {
       activeVoice.isPlaying = false;
 
       this.stopTimeUpdates();
-      console.log("Playback paused");
     }
   }
 
@@ -417,16 +390,13 @@ export class CrossfadeController {
     return activeVoice.isPlaying;
   }
 
-  // Abort any in-progress crossfade and clean up state
   abortCrossfade(): void {
     if (!this.crossfadeInProgress) return;
 
-    console.log("Aborting crossfade operation");
     this.crossfadeInProgress = false;
     this.crossfadePhase = "none";
     this.crossfadeStartTime = null;
 
-    // Keep only the active voice, cleanup the inactive one
     const activeVoice = this.getActiveVoice();
     const inactiveVoice = this.getInactiveVoice();
 
@@ -436,27 +406,20 @@ export class CrossfadeController {
     }
     inactiveVoice.isPlaying = false;
 
-    // Ensure active voice volume is restored
     if (activeVoice.audio) {
       activeVoice.audio.volume = this.isMuted ? 0 : this.volume;
     }
-
-    console.log("Crossfade aborted, active voice restored");
   }
 
   destroy(): void {
     this.isDestroyed = true;
 
-    // Stop all audio and clear intervals/timeouts
     this.stop();
 
-    // Clear callback references to prevent memory leaks
     this.onTrackEnd = undefined;
     this.onTimeUpdate = undefined;
     this.onError = undefined;
     this.onCrossfadeStart = undefined;
     this.onCrossfadeComplete = undefined;
-
-    console.log("CrossfadeController destroyed and cleaned up");
   }
 }

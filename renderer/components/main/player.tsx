@@ -428,11 +428,9 @@ export const Player = () => {
     if (crossfadeControllerRef.current.isPlaying()) {
       crossfadeControllerRef.current.pause();
       setIsPlaying(false);
-      console.log('Playback paused via handlePlayPause');
     } else {
       crossfadeControllerRef.current.play();
       setIsPlaying(true);
-      console.log('Playback started via handlePlayPause');
     }
   }, [setIsPlaying]);
 
@@ -486,7 +484,6 @@ export const Player = () => {
     event.preventDefault();
     const delta = event.deltaY > 0 ? -0.05 : 0.05; // Scroll down decreases, scroll up increases
     const newVolume = Math.max(0, Math.min(1, Math.round((volume + delta) * 100) / 100));
-    console.log(`Volume changed: ${newVolume}`);
     handleVolume([newVolume]);
   }, [volume, handleVolume]);
 
@@ -497,10 +494,8 @@ export const Player = () => {
     setIsFavourite((prev) => !prev);
   }, []);
 
-  // True dual-voice crossfade with bulletproof error handling
   const handleNextSongWithCrossfade = useCallback(async () => {
     if (!crossfadeControllerRef.current || !crossfade || currentIndex >= queue.length - 1) {
-      console.log('Crossfade conditions not met, using normal transition');
       nextSong();
       return;
     }
@@ -512,7 +507,6 @@ export const Player = () => {
       return;
     }
 
-    console.log(`Starting bulletproof crossfade: ${song?.name} → ${nextTrack.name}`);
     
     try {
       const crossfadeTrack: CrossfadeTrack = {
@@ -521,21 +515,13 @@ export const Player = () => {
         duration: nextTrack.duration
       };
       
-      // Set flag to prevent audio reload during crossfade
       crossfadeActiveRef.current = true;
-      
-      // Execute crossfade with timeout protection
       const crossfadePromise = crossfadeControllerRef.current.scheduleCrossfade(crossfadeTrack);
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Crossfade timeout')), 15000)
       );
       
       await Promise.race([crossfadePromise, timeoutPromise]);
-      
-      // Note: UI update is now handled by onCrossfadeStart callback
-      // The crossfade controller handles the audio seamlessly
-      
-      console.log('Crossfade scheduled successfully');
       
     } catch (error) {
       console.error('Crossfade failed, falling back to normal transition:', error);
@@ -558,12 +544,10 @@ export const Player = () => {
     };
   }, []);
 
-  // Handle crossfade state changes - reset any pending operations when crossfade is toggled
   useEffect(() => {
     if (!crossfade) {
       // Reset any pending crossfade operations when crossfade is turned off
       if (nextTrackQueuedRef.current || crossfadeActiveRef.current) {
-        console.log('Crossfade disabled mid-song, aborting pending operations');
         nextTrackQueuedRef.current = false;
         crossfadeActiveRef.current = false;
         
@@ -573,15 +557,14 @@ export const Player = () => {
         }
       }
     } else {
-      // When crossfade is turned ON mid-song, ensure clean state
-      console.log('Crossfade enabled mid-song, ensuring clean state');
-      nextTrackQueuedRef.current = false;
-      crossfadeActiveRef.current = false;
-      
-      // Make sure the controller is ready for crossfade operations
-      if (crossfadeControllerRef.current && song) {
-        // The current song should already be loaded, just ensure we're ready
-        console.log('Crossfade ready for current song:', song.name);
+      if (!crossfadeActiveRef.current) {
+        nextTrackQueuedRef.current = false;
+        
+        // Make sure the controller is ready for crossfade operations
+        if (crossfadeControllerRef.current && song) {
+          // The current song should already be loaded, just ensure we're ready
+        }
+      } else {
       }
     }
   }, [crossfade, song]);
@@ -808,13 +791,8 @@ export const Player = () => {
 
   // Initialize or update audio when song changes
   useEffect(() => {
-    console.log(`Audio loading useEffect triggered for song: ${song?.name}, crossfadeActive: ${crossfadeActiveRef.current}`);
     
-    // Skip reloading if crossfade is active (audio is already handled by crossfade)
     if (crossfadeActiveRef.current) {
-      console.log(`SKIPPING AUDIO RELOAD during crossfade for: ${song?.name}`);
-      // Still update the seek position and UI state for the new song
-      setSeekPosition(0);
       setIsPlaying(true);
       if (song) {
         updateDiscordState(1, song);
@@ -823,7 +801,7 @@ export const Player = () => {
       return;
     }
 
-    console.log(`PROCEEDING with audio reload for: ${song?.name}`);
+    crossfadeActiveRef.current = false;
 
     // Reset seek position immediately when song changes
     setSeekPosition(0);
@@ -831,7 +809,6 @@ export const Player = () => {
     // No song to play, exit early
     if (!song?.filePath) return;
 
-    // Ensure CrossfadeController exists
     if (!crossfadeControllerRef.current) {
       console.warn('CrossfadeController not initialized, creating new instance');
       crossfadeControllerRef.current = new CrossfadeController();
@@ -849,13 +826,11 @@ export const Player = () => {
       crossfadeDuration,
       volume: isMuted ? 0 : volume,
       onTrackEnd: () => {
-        console.log("Song ended naturally");
         setIsPlaying(false);
         window.ipc.send("update-window", [false, null, null]);
         
         // Always advance to next song if not repeating, regardless of crossfade state
         if (!repeat) {
-          console.log("Advancing to next song from onTrackEnd");
           nextSong();
         }
         
@@ -867,12 +842,10 @@ export const Player = () => {
         setSeekPosition(currentTime);
         
         // Trigger crossfade when approaching end of song
-        // Note: crossfade, currentIndex, queue values are fresh due to useEffect dependencies
         if (crossfade && currentIndex < queue.length - 1 && !nextTrackQueuedRef.current) {
           const timeRemaining = duration - currentTime;
           // Trigger crossfade when we reach the crossfade point (more generous window)
           if (timeRemaining <= crossfadeDuration + 0.5 && timeRemaining > 0.5) {
-            console.log(`Crossfade trigger: ${timeRemaining.toFixed(2)}s remaining, crossfade enabled: ${crossfade}`);
             nextTrackQueuedRef.current = true;
             handleNextSongWithCrossfade().catch((error) => {
               console.error('Crossfade failed, falling back to normal transition:', error);
@@ -883,17 +856,16 @@ export const Player = () => {
         }
       },
       onCrossfadeStart: (nextTrack: CrossfadeTrack) => {
-        console.log('Crossfade started, switching UI to next track:', nextTrack.id);
-        // Set flag BEFORE switching UI to prevent audio reload
         crossfadeActiveRef.current = true;
-        // Switch UI to show the next track immediately when crossfade starts
-        nextSong();
-        // Reset seek position to show elapsed time from 0:00 for the new track
-        setSeekPosition(0);
       },
       onCrossfadeComplete: () => {
-        console.log('Crossfade completed, resetting active flag');
-        crossfadeActiveRef.current = false;
+        const newTrackPosition = controller.getCurrentTime();
+        setSeekPosition(newTrackPosition);
+        nextSong();
+        
+        setTimeout(() => {
+          crossfadeActiveRef.current = false;
+        }, 1000);
       },
       onError: (error: Error) => {
         console.error("CrossfadeController error:", error);
@@ -1262,7 +1234,6 @@ export const Player = () => {
                         <Button
                           variant="ghost"
                           onClick={() => {
-                            console.log("Crossfade button clicked, current state:", crossfade);
                             toggleCrossfade();
                           }}
                           className="relative opacity-100!"
