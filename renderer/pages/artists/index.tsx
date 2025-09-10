@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/router";
 import { useScrollAreaRestoration } from "@/hooks/useScrollAreaRestoration";
+import { useDebounce } from "@/hooks/useDebounce";
 import Image from "next/image";
 import { 
   IconUser, 
@@ -19,6 +20,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import VirtualArtistGrid from "@/components/VirtualArtistGrid";
+import { ArtistGridSkeleton } from "@/components/LoadingSkeletons";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 type ArtistItem = {
   name: string;
@@ -37,6 +41,7 @@ export default function ArtistsPage() {
   const [artists, setArtists] = useState<ArtistItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
   
   // Use scroll restoration hook for ScrollArea
   useScrollAreaRestoration('artists');
@@ -100,8 +105,8 @@ export default function ArtistsPage() {
   const filteredArtists = useMemo(() => {
     let filtered = artists;
     
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
+    if (debouncedSearchQuery) {
+      const query = debouncedSearchQuery.toLowerCase();
       filtered = artists.filter((artist) =>
         artist.name.toLowerCase().includes(query)
       );
@@ -127,7 +132,7 @@ export default function ArtistsPage() {
     });
     
     return sorted;
-  }, [searchQuery, artists, sortBy, sortOrder]);
+  }, [debouncedSearchQuery, artists, sortBy, sortOrder]);
 
   const handleArtistClick = useCallback((artistName: string) => {
     router.push(`/artists/${encodeURIComponent(artistName)}`);
