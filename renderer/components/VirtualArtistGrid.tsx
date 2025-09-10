@@ -17,6 +17,13 @@ interface VirtualArtistGridProps {
   onArtistClick: (artistName: string) => void;
 }
 
+interface CellData {
+  artists: ArtistItem[];
+  columnCount: number;
+  viewMode: 'grid-large' | 'grid-small' | 'list';
+  onArtistClick: (artistName: string) => void;
+}
+
 const getColumnCount = (width: number, viewMode: string): number => {
   if (viewMode === 'list') return 1;
   
@@ -39,7 +46,7 @@ const ArtistCell = memo(({
   rowIndex, 
   style 
 }: {
-  data: any;
+  data: CellData;
   columnIndex: number;
   rowIndex: number;
   style: React.CSSProperties;
