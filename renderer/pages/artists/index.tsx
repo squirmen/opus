@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useState, useMemo, useCallback, memo } from "react";
 import { useRouter } from "next/router";
 import { useScrollAreaRestoration } from "@/hooks/useScrollAreaRestoration";
 import { useDebounce } from "@/hooks/useDebounce";
@@ -20,7 +20,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import VirtualArtistGrid from "@/components/VirtualArtistGrid";
 import { ArtistGridSkeleton } from "@/components/LoadingSkeletons";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
@@ -40,10 +39,11 @@ export default function ArtistsPage() {
   const router = useRouter();
   const [artists, setArtists] = useState<ArtistItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSearching, setIsSearching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
-  
-  // Use scroll restoration hook for ScrollArea
+
   useScrollAreaRestoration('artists');
   
   
@@ -89,11 +89,17 @@ export default function ArtistsPage() {
   useEffect(() => {
     const loadArtists = async () => {
       setLoading(true);
+      setError(null);
       try {
         const allArtists = await window.ipc.invoke("getAllArtists");
-        setArtists(allArtists);
-      } catch (error) {
-        console.error("Error loading artists:", error);
+        if (Array.isArray(allArtists)) {
+          setArtists(allArtists);
+        } else {
+          throw new Error("Invalid data format received");
+        }
+      } catch (err) {
+        console.error("Error loading artists:", err);
+        setError("Failed to load artists. Please try again.");
       } finally {
         setLoading(false);
       }
@@ -101,6 +107,14 @@ export default function ArtistsPage() {
 
     loadArtists();
   }, []);
+
+  useEffect(() => {
+    if (searchQuery !== debouncedSearchQuery) {
+      setIsSearching(true);
+    } else {
+      setIsSearching(false);
+    }
+  }, [searchQuery, debouncedSearchQuery]);
 
   const filteredArtists = useMemo(() => {
     let filtered = artists;
@@ -138,14 +152,6 @@ export default function ArtistsPage() {
     router.push(`/artists/${encodeURIComponent(artistName)}`);
   }, [router]);
 
-  if (loading) {
-    return (
-      <div className="flex h-96 w-full items-center justify-center">
-        <Spinner className="h-8 w-8" />
-      </div>
-    );
-  }
-
   return (
     <TooltipProvider>
       <div className="relative">
@@ -166,8 +172,13 @@ export default function ArtistsPage() {
                 placeholder="Search artists..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
+                className="pl-10 pr-10"
               />
+              {isSearching && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <Spinner className="h-4 w-4" />
+                </div>
+              )}
             </div>
             
             <div className="flex items-center gap-2">
@@ -279,115 +290,132 @@ export default function ArtistsPage() {
         </div>
 
         <div className="mt-4">
-          {viewMode === "grid-large" && (
-          <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-            {filteredArtists.map((artist) => (
-              <div
-                key={artist.name}
-                className="group cursor-pointer"
-                onClick={() => handleArtistClick(artist.name)}
+          {error ? (
+            <div className="flex h-64 w-full flex-col items-center justify-center">
+              <p className="text-lg text-red-500">{error}</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-4 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200 transition"
               >
-                <div className="relative aspect-square overflow-hidden rounded-xl bg-gradient-to-br from-gray-100 to-gray-200 shadow-lg transition duration-300 group-hover:scale-[1.02] group-hover:shadow-xl dark:from-gray-800 dark:to-gray-900">
-                  {artist.cover ? (
-                    <Image
-                      alt={artist.name}
-                      src={`wora://${artist.cover}`}
-                      fill
-                      loading="lazy"
-                      className="object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center">
-                      <IconUser stroke={1.5} size={48} className="opacity-50" />
+                Retry
+              </button>
+            </div>
+          ) : loading ? (
+            <ArtistGridSkeleton viewMode={viewMode} />
+          ) : filteredArtists.length === 0 ? (
+            <div className="flex h-64 w-full flex-col items-center justify-center">
+              <IconSearch size={48} className="mb-4 opacity-50" />
+              <p className="text-lg opacity-50">No artists found</p>
+            </div>
+          ) : (
+            <ErrorBoundary>
+              {viewMode === "grid-large" && (
+                <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8">
+                  {filteredArtists.map((artist) => (
+                    <div
+                      key={artist.name}
+                      className="group cursor-pointer"
+                      onClick={() => handleArtistClick(artist.name)}
+                    >
+                      <div className="relative aspect-square overflow-hidden rounded-xl bg-gradient-to-br from-gray-100 to-gray-200 shadow-lg transition duration-300 group-hover:scale-[1.02] group-hover:shadow-xl dark:from-gray-800 dark:to-gray-900">
+                        {artist.cover ? (
+                          <Image
+                            alt={artist.name}
+                            src={`wora://${artist.cover}`}
+                            fill
+                            loading="lazy"
+                            className="object-cover"
+                            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center">
+                            <IconUser stroke={1.5} size={48} className="opacity-50" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-3">
+                        <p className="truncate font-medium">{artist.name}</p>
+                        <p className="text-xs opacity-60">
+                          {artist.albumCount} {artist.albumCount === 1 ? "album" : "albums"} · {artist.songCount} {artist.songCount === 1 ? "song" : "songs"}
+                        </p>
+                      </div>
                     </div>
-                  )}
+                  ))}
                 </div>
-                <div className="mt-3">
-                  <p className="truncate font-medium">{artist.name}</p>
-                  <p className="text-xs opacity-60">
-                    {artist.albumCount} {artist.albumCount === 1 ? "album" : "albums"} · {artist.songCount} {artist.songCount === 1 ? "song" : "songs"}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-          )}
-          
-        {viewMode === "grid-small" && (
-          <div className="grid grid-cols-4 gap-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10">
-            {filteredArtists.map((artist) => (
-              <div
-                key={artist.name}
-                className="group cursor-pointer"
-                onClick={() => handleArtistClick(artist.name)}
-              >
-                <div className="relative aspect-square overflow-hidden rounded-lg bg-gradient-to-br from-gray-100 to-gray-200 shadow transition duration-300 group-hover:scale-[1.05] group-hover:shadow-lg dark:from-gray-800 dark:to-gray-900">
-                  {artist.cover ? (
-                    <Image
-                      alt={artist.name}
-                      src={`wora://${artist.cover}`}
-                      fill
-                      loading="lazy"
-                      className="object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center">
-                      <IconUser stroke={1.5} size={32} className="opacity-50" />
+              )}
+
+              {viewMode === "grid-small" && (
+                <div className="grid grid-cols-4 gap-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12">
+                  {filteredArtists.map((artist) => (
+                    <div
+                      key={artist.name}
+                      className="group cursor-pointer"
+                      onClick={() => handleArtistClick(artist.name)}
+                    >
+                      <div className="relative aspect-square overflow-hidden rounded-lg bg-gradient-to-br from-gray-100 to-gray-200 shadow transition duration-300 group-hover:scale-[1.05] group-hover:shadow-lg dark:from-gray-800 dark:to-gray-900">
+                        {artist.cover ? (
+                          <Image
+                            alt={artist.name}
+                            src={`wora://${artist.cover}`}
+                            fill
+                            loading="lazy"
+                            className="object-cover"
+                            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center">
+                            <IconUser stroke={1.5} size={32} className="opacity-50" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-2">
+                        <p className="truncate text-xs font-medium">{artist.name}</p>
+                        <p className="truncate text-xs opacity-50">
+                          {artist.songCount} songs
+                        </p>
+                      </div>
                     </div>
-                  )}
+                  ))}
                 </div>
-                <div className="mt-2">
-                  <p className="truncate text-xs font-medium">{artist.name}</p>
-                  <p className="truncate text-xs opacity-50">
-                    {artist.songCount} songs
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-          )}
-          
-        {viewMode === "list" && (
-          <div className="space-y-1">
-            {filteredArtists.map((artist) => (
-              <div
-                key={artist.name}
-                className="group flex cursor-pointer items-center gap-4 rounded-lg p-3 transition hover:bg-gray-100 dark:hover:bg-gray-800"
-                onClick={() => handleArtistClick(artist.name)}
-              >
-                <div className="relative h-12 w-12 flex-shrink-0 overflow-hidden rounded-lg bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900">
-                  {artist.cover ? (
-                    <Image
-                      alt={artist.name}
-                      src={`wora://${artist.cover}`}
-                      fill
-                      loading="lazy"
-                      className="object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center">
-                      <IconUser stroke={1.5} size={20} className="opacity-50" />
+              )}
+
+              {viewMode === "list" && (
+                <div className="space-y-1">
+                  {filteredArtists.map((artist) => (
+                    <div
+                      key={artist.name}
+                      className="group flex cursor-pointer items-center gap-4 rounded-lg p-3 transition hover:bg-gray-100 dark:hover:bg-gray-800"
+                      onClick={() => handleArtistClick(artist.name)}
+                    >
+                      <div className="relative h-12 w-12 flex-shrink-0 overflow-hidden rounded-lg bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900">
+                        {artist.cover ? (
+                          <Image
+                            alt={artist.name}
+                            src={`wora://${artist.cover}`}
+                            fill
+                            loading="lazy"
+                            className="object-cover"
+                            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center">
+                            <IconUser stroke={1.5} size={20} className="opacity-50" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate font-medium">{artist.name}</p>
+                        <p className="text-sm opacity-60">
+                          {artist.albumCount} {artist.albumCount === 1 ? "album" : "albums"} · {artist.songCount} {artist.songCount === 1 ? "song" : "songs"}
+                        </p>
+                      </div>
                     </div>
-                  )}
+                  ))}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="truncate font-medium">{artist.name}</p>
-                  <p className="text-sm opacity-60">
-                    {artist.albumCount} {artist.albumCount === 1 ? "album" : "albums"} · {artist.songCount} {artist.songCount === 1 ? "song" : "songs"}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
+              )}
+            </ErrorBoundary>
           )}
         </div>
-
-        {filteredArtists.length === 0 && (
-          <div className="flex h-64 w-full flex-col items-center justify-center">
-            <IconSearch size={48} className="mb-4 opacity-50" />
-            <p className="text-lg opacity-50">No artists found</p>
-          </div>
-        )}
       </div>
     </TooltipProvider>
   );

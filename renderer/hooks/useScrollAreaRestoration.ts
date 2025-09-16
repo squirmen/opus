@@ -2,12 +2,16 @@ import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 
 const DEBUG = false;
+const MAX_RESTORE_ATTEMPTS = 10;
+const RESTORE_ATTEMPT_DELAY = 100; // ms
+const MAX_RESTORE_TIME = 2000; // 2 seconds max timeout
 
 export function useScrollAreaRestoration(key: string) {
   const router = useRouter();
   const scrollPositions = useRef<{ [path: string]: number }>({});
   const isRestoring = useRef(false);
   const lastKnownScrollTop = useRef(0);
+  const restoreTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const saved = sessionStorage.getItem(`scrollAreaPositions_${key}`);
@@ -57,38 +61,62 @@ export function useScrollAreaRestoration(key: string) {
       
       if (savedPosition && !isRestoring.current) {
         isRestoring.current = true;
-        
+
+        if (restoreTimeoutRef.current) {
+          clearTimeout(restoreTimeoutRef.current);
+        }
+        restoreTimeoutRef.current = setTimeout(() => {
+          if (DEBUG) {
+            console.log(`[${key}] Max restore time reached, aborting restore`);
+          }
+          isRestoring.current = false;
+        }, MAX_RESTORE_TIME);
+
         const attemptRestore = (attempts = 0): void => {
-          if (attempts > 10) {
+          if (!isRestoring.current) return;
+
+          if (attempts > MAX_RESTORE_ATTEMPTS) {
+            if (DEBUG) {
+              console.log(`[${key}] Max attempts reached, aborting restore`);
+            }
             isRestoring.current = false;
+            if (restoreTimeoutRef.current) {
+              clearTimeout(restoreTimeoutRef.current);
+            }
             return;
           }
 
           const viewport = findScrollViewport();
           if (viewport) {
             viewport.scrollTop = savedPosition;
-            
+
             setTimeout(() => {
               const actualScroll = viewport.scrollTop;
-              
+
               if (Math.abs(actualScroll - savedPosition) > 50) {
                 viewport.scrollTop = savedPosition;
-                
+
                 setTimeout(() => {
                   isRestoring.current = false;
                   lastKnownScrollTop.current = viewport.scrollTop;
+                  if (restoreTimeoutRef.current) {
+                    clearTimeout(restoreTimeoutRef.current);
+                  }
                 }, 50);
               } else {
                 isRestoring.current = false;
                 lastKnownScrollTop.current = actualScroll;
+                if (restoreTimeoutRef.current) {
+                  clearTimeout(restoreTimeoutRef.current);
+                }
               }
             }, 50);
           } else {
-            setTimeout(() => attemptRestore(attempts + 1), 100);
+            setTimeout(() => attemptRestore(attempts + 1), RESTORE_ATTEMPT_DELAY);
           }
         };
 
-        setTimeout(() => attemptRestore(), 100);
+        setTimeout(() => attemptRestore(), RESTORE_ATTEMPT_DELAY);
       }
     };
 
@@ -131,6 +159,9 @@ export function useScrollAreaRestoration(key: string) {
     return () => {
       if (scrollViewport) {
         scrollViewport.removeEventListener('scroll', handleScroll);
+      }
+      if (restoreTimeoutRef.current) {
+        clearTimeout(restoreTimeoutRef.current);
       }
       router.events.off('routeChangeStart', handleRouteChangeStart);
       router.events.off('routeChangeComplete', handleRouteChangeComplete);
