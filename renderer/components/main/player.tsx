@@ -1029,22 +1029,32 @@ export const Player = () => {
 
             <div className="absolute right-0 left-0 mx-auto flex h-full w-2/4 flex-col items-center justify-between gap-4">
               <div className="flex h-full w-full items-center justify-center gap-8">
-                {metadata?.format?.lossless && (
-                  <div className="flex">
-                    <Tooltip delayDuration={0}>
-                      <TooltipTrigger>
-                        <IconRipple
-                          stroke={2}
-                          className="w-3.5 cursor-pointer"
-                        />
-                      </TooltipTrigger>
-                      <TooltipContent side="left" sideOffset={25}>
-                        Lossless [{metadata.format.bitsPerSample}/
-                        {(metadata.format.sampleRate / 1000).toFixed(1)}kHz]
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                )}
+                {(() => {
+                  const codec = metadata?.format?.codec;
+                  const isLossless = metadata?.format?.lossless ||
+                    codec === 'ALAC' || codec === 'alac' ||
+                    codec === 'FLAC' || codec === 'flac';
+
+                  if (isLossless) {
+                    return (
+                      <div className="flex">
+                        <Tooltip delayDuration={0}>
+                          <TooltipTrigger>
+                            <IconRipple
+                              stroke={2}
+                              className="w-3.5 cursor-pointer"
+                            />
+                          </TooltipTrigger>
+                          <TooltipContent side="left" sideOffset={25}>
+                            Lossless [{metadata?.format?.bitsPerSample || 16}/
+                            {((metadata?.format?.sampleRate || 44100) / 1000).toFixed(1)}kHz]
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
                 <Button
                   variant="ghost"
                   onClick={toggleShuffle}
