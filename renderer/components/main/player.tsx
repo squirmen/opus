@@ -25,7 +25,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import React, { memo, useCallback, useEffect, useRef, useState } from "react";
-import { CrossfadeController, CrossfadeTrack } from "@/lib/CrossfadeController";
+import { AudiophileCrossfadeAdapter, CrossfadeTrack } from "@/lib/AudiophileCrossfadeAdapter";
 import { FixedSizeList as List } from "react-window";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -235,7 +235,7 @@ export const Player = () => {
   const scrobbleTimeout = useRef<NodeJS.Timeout | null>(null);
 
   // References
-  const crossfadeControllerRef = useRef<CrossfadeController | null>(null);
+  const crossfadeControllerRef = useRef<AudiophileCrossfadeAdapter | null>(null);
   const nextTrackQueuedRef = useRef<boolean>(false);
   const crossfadeActiveRef = useRef<boolean>(false);
   const preloadedTrackIdRef = useRef<number | null>(null);
@@ -549,7 +549,7 @@ export const Player = () => {
   // Initialize CrossfadeController once on mount
   useEffect(() => {
     if (!crossfadeControllerRef.current) {
-      crossfadeControllerRef.current = new CrossfadeController();
+      crossfadeControllerRef.current = new AudiophileCrossfadeAdapter();
     }
 
     return () => {
@@ -827,7 +827,7 @@ export const Player = () => {
     if (!song?.filePath) return;
 
     if (!crossfadeControllerRef.current) {
-      crossfadeControllerRef.current = new CrossfadeController();
+      crossfadeControllerRef.current = new AudiophileCrossfadeAdapter();
     }
 
     const controller = crossfadeControllerRef.current;
@@ -882,10 +882,12 @@ export const Player = () => {
           }
           
           // Trigger crossfade or gapless transition when approaching end
-          if (!nextTrackQueuedRef.current) {
-            if (crossfade && timeRemaining <= crossfadeDuration + 0.5 && timeRemaining > 0.5) {
-              // Crossfade transition
+          if (!nextTrackQueuedRef.current && !crossfadeActiveRef.current) {
+            // Start crossfade when we reach the crossfade duration threshold
+            if (crossfade && timeRemaining <= crossfadeDuration && timeRemaining > 0.1) {
+              // Crossfade transition - trigger once when we hit the crossfade duration
               nextTrackQueuedRef.current = true;
+              console.log(`Starting crossfade with ${timeRemaining.toFixed(1)}s remaining`);
               handleNextSongWithCrossfade().catch((error) => {
                 console.error('Crossfade failed, falling back to normal transition:', error);
                 nextTrackQueuedRef.current = false;
