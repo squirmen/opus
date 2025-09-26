@@ -1287,7 +1287,14 @@ export const Player = () => {
 
                           <p className="truncate">
                             <span className="opacity-50">Codec:</span>{" "}
-                            {metadata?.format?.codec || "Unknown"}
+                            {(() => {
+                              const codec = metadata?.format?.codec;
+                              if (codec === 'ALAC' || codec === 'alac') return 'ALAC (Apple Lossless)';
+                              if (codec === 'AAC' || codec === 'mp4a' || codec?.includes('mp4a')) return 'AAC';
+                              if (codec === 'FLAC' || codec === 'flac') return 'FLAC';
+                              if (codec === 'MP3' || codec === 'mp3' || codec === 'MPEG 1 Layer 3') return 'MP3';
+                              return codec || "Unknown";
+                            })()}
                           </p>
 
                           <p className="truncate">

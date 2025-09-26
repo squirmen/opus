@@ -24,7 +24,7 @@ const audioExtensions = [
   ".wav",
   ".aac",
   ".caf",
-  ".m4a",
+  ".m4a",  // Supports both AAC and ALAC codecs
   ".m4b",
   ".mp4",
   ".weba",
