@@ -724,9 +724,14 @@ export const Player = () => {
     if (!song?.filePath) return;
 
     // Create new Howl instance
+    // For M4A/M4B/MP4 files, let Howler auto-detect the format since they can contain various codecs
+    const fileExtension = song.filePath.split(".").pop()?.toLowerCase();
+    const autoDetectFormats = ['m4a', 'm4b', 'mp4'];
+    const formats = autoDetectFormats.includes(fileExtension || '') ? undefined : [fileExtension];
+
     const sound = new Howl({
       src: [`wora://${encodeURIComponent(song.filePath)}`],
-      format: [song.filePath.split(".").pop()],
+      format: formats,
       html5: true,
       autoplay: true,
       preload: true,
