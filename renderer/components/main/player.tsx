@@ -1035,19 +1035,23 @@ export const Player = () => {
                     codec === 'ALAC' || codec === 'alac' ||
                     codec === 'FLAC' || codec === 'flac';
 
-                  if (isLossless) {
+                  if (metadata?.format) {
                     return (
                       <div className="flex">
                         <Tooltip delayDuration={0}>
                           <TooltipTrigger>
                             <IconRipple
                               stroke={2}
-                              className="w-3.5 cursor-pointer"
+                              className={`w-3.5 cursor-pointer ${!isLossless ? 'opacity-30' : ''}`}
                             />
                           </TooltipTrigger>
                           <TooltipContent side="left" sideOffset={25}>
-                            Lossless [{metadata?.format?.bitsPerSample || 16}/
-                            {((metadata?.format?.sampleRate || 44100) / 1000).toFixed(1)}kHz]
+                            {isLossless ? (
+                              <>Lossless [{metadata?.format?.bitsPerSample || 16}/
+                              {((metadata?.format?.sampleRate || 44100) / 1000).toFixed(1)}kHz]</>
+                            ) : (
+                              <>Lossy [{metadata?.format?.bitrate ? `${Math.round(metadata.format.bitrate / 1000)}kbps` : 'Variable'}]</>
+                            )}
                           </TooltipContent>
                         </Tooltip>
                       </div>
