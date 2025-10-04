@@ -34,7 +34,8 @@ import { initDatabase } from "./helpers/db/createDB";
 import { parseFile } from "music-metadata";
 import fs from "fs";
 import { Client } from "@xhayper/discord-rpc";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
+import { songs, librarySources } from "./helpers/db/schema";
 import { initializeLastFmHandlers } from "./helpers/lastfm-service";
 import * as electronLog from "electron-log";
 
@@ -221,6 +222,94 @@ ipcMain.on(
 // @hiaaryan: Called to Rescan Library
 ipcMain.handle("rescanLibrary", async () => {
   await initializeLibrary();
+});
+
+// Clear entire library
+ipcMain.handle("clearLibrary", async () => {
+  const { clearAllSongs } = await import("./helpers/db/connectDB");
+  await clearAllSongs();
+});
+
+// Show open dialog for selecting directories
+ipcMain.handle("showOpenDialog", async (_, options) => {
+  return await dialog.showOpenDialog(options);
+});
+
+// Library Source Management handlers
+ipcMain.handle("getLibrarySources", async () => {
+  try {
+    const { LibrarySourceManager } = await import("./helpers/db/librarySourceManager");
+    return await LibrarySourceManager.getAllSources();
+  } catch (error) {
+    logger.error("Failed to get library sources:", error);
+    throw error;
+  }
+});
+
+ipcMain.handle("addLibrarySource", async (_, path: string, name: string) => {
+  try {
+    const { LibrarySourceManager } = await import("./helpers/db/librarySourceManager");
+    return await LibrarySourceManager.addSource(path, name);
+  } catch (error) {
+    logger.error("Failed to add library source:", error);
+    throw error;
+  }
+});
+
+ipcMain.handle("removeLibrarySource", async (_, sourceId: number) => {
+  try {
+    const { LibrarySourceManager } = await import("./helpers/db/librarySourceManager");
+    await LibrarySourceManager.removeSource(sourceId);
+  } catch (error) {
+    logger.error("Failed to remove library source:", error);
+    throw error;
+  }
+});
+
+ipcMain.handle("toggleLibrarySource", async (_, sourceId: number, enabled: boolean) => {
+  try {
+    const { LibrarySourceManager } = await import("./helpers/db/librarySourceManager");
+    await LibrarySourceManager.toggleSource(sourceId, enabled);
+  } catch (error) {
+    logger.error("Failed to toggle library source:", error);
+    throw error;
+  }
+});
+
+ipcMain.handle("renameLibrarySource", async (_, sourceId: number, name: string) => {
+  try {
+    const { LibrarySourceManager } = await import("./helpers/db/librarySourceManager");
+    await LibrarySourceManager.renameSource(sourceId, name);
+  } catch (error) {
+    logger.error("Failed to rename library source:", error);
+    throw error;
+  }
+});
+
+ipcMain.handle("scanLibrarySources", async (_, sourceIds?: number[]) => {
+  try {
+    const { LibrarySourceManager } = await import("./helpers/db/librarySourceManager");
+    const { initializeData } = await import("./helpers/db/connectDB");
+
+    if (sourceIds && sourceIds.length > 0) {
+      for (const sourceId of sourceIds) {
+        const source = await db.query.librarySources.findFirst({
+          where: eq(librarySources.id, sourceId)
+        });
+        if (source) {
+          await initializeData(source.path, true);
+        }
+      }
+    } else {
+      const paths = await LibrarySourceManager.getAllScanPaths();
+      for (const path of paths) {
+        await initializeData(path, true);
+      }
+    }
+  } catch (error) {
+    logger.error("Failed to scan library sources:", error);
+    throw error;
+  }
 });
 
 // @hiaaryan: Called to Set Music Folder
@@ -465,7 +554,16 @@ ipcMain.handle("getAllSongs", async () => {
     const songsWithAlbums = await db.query.songs.findMany({
       with: {
         album: true, // This fetches the full album data for each song
+        source: true
       },
+      where: (songs, { exists }) => exists(
+        db.select()
+          .from(librarySources)
+          .where(and(
+            eq(librarySources.id, songs.sourceId),
+            eq(librarySources.enabled, true)
+          ))
+      ),
       orderBy: sql`RANDOM()`, // Randomize the songs to make shuffling more natural
     });
 

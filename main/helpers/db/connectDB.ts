@@ -1,5 +1,5 @@
 import { and, eq, like, sql, or, exists } from "drizzle-orm";
-import { albums, songs, settings, playlistSongs, playlists } from "./schema";
+import { albums, songs, settings, playlistSongs, playlists, librarySources } from "./schema";
 import fs from "fs";
 import { parseFile, selectCover } from "music-metadata";
 import path from "path";
@@ -7,6 +7,8 @@ import { BetterSQLite3Database, drizzle } from "drizzle-orm/better-sqlite3";
 import * as schema from "./schema";
 import { sqlite } from "./createDB";
 import { app } from "electron";
+import { LibrarySourceManager } from "./librarySourceManager";
+import { addLibrarySourcesMigration } from "./migrations/add-library-sources";
 
 export const db: BetterSQLite3Database<typeof schema> = drizzle(sqlite, {
   schema,
@@ -140,8 +142,21 @@ function scanEntireLibrary(dir: string): string[] {
 }
 
 export const getLibraryStats = async () => {
-  const songCount = await db.select({ count: sql`count(*)` }).from(songs);
-  const albumCount = await db.select({ count: sql`count(*)` }).from(albums);
+  // Count only songs from enabled sources
+  const songCount = await db
+    .select({ count: sql`count(*)` })
+    .from(songs)
+    .innerJoin(librarySources, eq(songs.sourceId, librarySources.id))
+    .where(eq(librarySources.enabled, true));
+
+  // Count only albums that have songs from enabled sources
+  const albumCount = await db
+    .select({ count: sql`count(DISTINCT ${albums.id})` })
+    .from(albums)
+    .innerJoin(songs, eq(songs.albumId, albums.id))
+    .innerJoin(librarySources, eq(songs.sourceId, librarySources.id))
+    .where(eq(librarySources.enabled, true));
+
   const playlistCount = await db
     .select({ count: sql`count(*)` })
     .from(playlists);
@@ -179,7 +194,18 @@ export const updateSettings = async (data: any) => {
 
 export const getSongs = async (page: number = 1, limit: number = 30) => {
   return await db.query.songs.findMany({
-    with: { album: true },
+    with: {
+      album: true,
+      source: true
+    },
+    where: (songs, { exists }) => exists(
+      db.select()
+        .from(librarySources)
+        .where(and(
+          eq(librarySources.id, songs.sourceId),
+          eq(librarySources.enabled, true)
+        ))
+    ),
     limit: limit,
     offset: (page - 1) * limit,
     orderBy: (songs, { asc }) => [asc(songs.name)],
@@ -187,22 +213,37 @@ export const getSongs = async (page: number = 1, limit: number = 30) => {
 };
 
 export const getAlbums = async (page: number, limit: number = 15) => {
-  // Get albums with pagination
+  // Get albums with pagination - only albums with songs from enabled sources
   const albumsResult = await db
     .select()
     .from(albums)
+    .where(
+      exists(
+        db.select()
+          .from(songs)
+          .innerJoin(librarySources, eq(songs.sourceId, librarySources.id))
+          .where(and(
+            eq(songs.albumId, albums.id),
+            eq(librarySources.enabled, true)
+          ))
+      )
+    )
     .orderBy(albums.name)
     .limit(limit)
     .offset((page - 1) * limit);
 
-  // Get durations for these albums
+  // Get durations for these albums - only count songs from enabled sources
   const albumsWithDuration = await Promise.all(
     albumsResult.map(async (album) => {
-      // Get total duration from songs in this album
+      // Get total duration from songs in this album that are from enabled sources
       const durationResult = await db
         .select({ totalDuration: sql`SUM(${songs.duration})` })
         .from(songs)
-        .where(eq(songs.albumId, album.id));
+        .innerJoin(librarySources, eq(songs.sourceId, librarySources.id))
+        .where(and(
+          eq(songs.albumId, album.id),
+          eq(librarySources.enabled, true)
+        ));
 
       return {
         ...album,
@@ -289,13 +330,24 @@ export const getAlbumWithSongs = async (id: number) => {
     where: eq(albums.id, id),
     with: {
       songs: {
-        with: { album: true },
+        where: (songs, { exists }) => exists(
+          db.select()
+            .from(librarySources)
+            .where(and(
+              eq(librarySources.id, songs.sourceId),
+              eq(librarySources.enabled, true)
+            ))
+        ),
+        with: {
+          album: true,
+          source: true
+        },
       },
     },
   });
 
   if (albumWithSongs) {
-    // Calculate total duration from all songs in this album
+    // Calculate total duration from all songs in this album (from enabled sources only)
     const totalDuration = albumWithSongs.songs.reduce(
       (total, song) => total + (song.duration || 0),
       0,
@@ -317,7 +369,18 @@ export const getPlaylistWithSongs = async (id: number) => {
       songs: {
         with: {
           song: {
-            with: { album: true },
+            where: (songs, { exists }) => exists(
+              db.select()
+                .from(librarySources)
+                .where(and(
+                  eq(librarySources.id, songs.sourceId),
+                  eq(librarySources.enabled, true)
+                ))
+            ),
+            with: {
+              album: true,
+              source: true
+            },
           },
         },
       },
@@ -326,10 +389,12 @@ export const getPlaylistWithSongs = async (id: number) => {
 
   return {
     ...playlistWithSongs,
-    songs: playlistWithSongs.songs.map((playlistSong) => ({
-      ...playlistSong.song,
-      album: playlistSong.song.album,
-    })),
+    songs: playlistWithSongs.songs
+      .filter(ps => ps.song !== null) // Filter out songs that were excluded due to disabled sources
+      .map((playlistSong) => ({
+        ...playlistSong.song,
+        album: playlistSong.song.album,
+      })),
   };
 };
 
@@ -375,8 +440,20 @@ export const addToFavourites = async (songId: number) => {
 export const searchDB = async (query: string) => {
   const lowerSearch = query.toLowerCase();
 
+  // Search albums that have songs from enabled sources
   const searchAlbums = await db.query.albums.findMany({
-    where: like(albums.name, `%${lowerSearch}%`),
+    where: (albums, { exists }) => and(
+      like(albums.name, `%${lowerSearch}%`),
+      exists(
+        db.select()
+          .from(songs)
+          .innerJoin(librarySources, eq(songs.sourceId, librarySources.id))
+          .where(and(
+            eq(songs.albumId, albums.id),
+            eq(librarySources.enabled, true)
+          ))
+      )
+    ),
     limit: 5,
   });
 
@@ -385,8 +462,19 @@ export const searchDB = async (query: string) => {
     limit: 5,
   });
 
+  // Search songs from enabled sources only
   const searchSongs = await db.query.songs.findMany({
-    where: like(songs.name, `%${lowerSearch}%`),
+    where: (songs, { exists }) => and(
+      like(songs.name, `%${lowerSearch}%`),
+      exists(
+        db.select()
+          .from(librarySources)
+          .where(and(
+            eq(librarySources.id, songs.sourceId),
+            eq(librarySources.enabled, true)
+          ))
+      )
+    ),
     with: {
       album: {
         columns: {
@@ -394,13 +482,25 @@ export const searchDB = async (query: string) => {
           cover: true,
         },
       },
+      source: true
     },
     limit: 5,
   });
 
-  // Search for artists by querying unique artist names from the albums table
+  // Search for artists by querying unique artist names from albums that have songs from enabled sources
   const searchArtists = await db.query.albums.findMany({
-    where: like(albums.artist, `%${lowerSearch}%`),
+    where: (albums, { exists }) => and(
+      like(albums.artist, `%${lowerSearch}%`),
+      exists(
+        db.select()
+          .from(songs)
+          .innerJoin(librarySources, eq(songs.sourceId, librarySources.id))
+          .where(and(
+            eq(songs.albumId, albums.id),
+            eq(librarySources.enabled, true)
+          ))
+      )
+    ),
     columns: {
       artist: true,
     },
@@ -457,20 +557,36 @@ export const removeSongFromPlaylist = async (
 };
 
 export const getRandomLibraryItems = async () => {
+  // Get random albums that have songs from enabled sources
   const randomAlbums = await db
     .select()
     .from(albums)
+    .where(
+      exists(
+        db.select()
+          .from(songs)
+          .innerJoin(librarySources, eq(songs.sourceId, librarySources.id))
+          .where(and(
+            eq(songs.albumId, albums.id),
+            eq(librarySources.enabled, true)
+          ))
+      )
+    )
     .orderBy(sql`RANDOM()`)
     .limit(10);
 
-  // Add duration calculation for albums
+  // Add duration calculation for albums - only count songs from enabled sources
   const albumsWithDuration = await Promise.all(
     randomAlbums.map(async (album) => {
-      // Get total duration from songs in this album
+      // Get total duration from songs in this album from enabled sources
       const durationResult = await db
         .select({ totalDuration: sql`SUM(${songs.duration})` })
         .from(songs)
-        .where(eq(songs.albumId, album.id));
+        .innerJoin(librarySources, eq(songs.sourceId, librarySources.id))
+        .where(and(
+          eq(songs.albumId, album.id),
+          eq(librarySources.enabled, true)
+        ));
 
       return {
         ...album,
@@ -479,8 +595,20 @@ export const getRandomLibraryItems = async () => {
     }),
   );
 
+  // Get random songs from enabled sources only
   const randomSongs = await db.query.songs.findMany({
-    with: { album: true },
+    with: {
+      album: true,
+      source: true
+    },
+    where: (songs, { exists }) => exists(
+      db.select()
+        .from(librarySources)
+        .where(and(
+          eq(librarySources.id, songs.sourceId),
+          eq(librarySources.enabled, true)
+        ))
+    ),
     limit: 10,
     orderBy: sql`RANDOM()`,
   });
@@ -533,8 +661,16 @@ export const initializeData = async (
       await fs.promises.mkdir(ART_DIR, { recursive: true });
     }
 
+    // Ensure we have at least one library source
+    let source = await LibrarySourceManager.getSourceByPath(musicFolder);
+    if (!source) {
+      // Migrate from old system or create new source
+      await LibrarySourceManager.migrateFromSingleFolder(musicFolder);
+      source = await LibrarySourceManager.getSourceByPath(musicFolder);
+    }
+
     // First pass: Just load metadata or do a full scan based on incremental flag
-    await processLibrary(musicFolder, incremental);
+    await processLibrary(musicFolder, incremental, source?.id);
 
     return true;
   } catch (error) {
@@ -544,7 +680,7 @@ export const initializeData = async (
 };
 
 // Batch process files to reduce memory usage and improve UI responsiveness
-async function processLibrary(musicFolder: string, incremental = false) {
+async function processLibrary(musicFolder: string, incremental = false, sourceId?: number) {
   const startTime = Date.now();
   const dbFilePaths = await getAllFilePathsFromDb();
 
@@ -556,7 +692,7 @@ async function processLibrary(musicFolder: string, incremental = false) {
     const batchSize = 100; // Increased from 50 for better throughput
 
     // Process the initial batch right away for quick UI updates
-    await processBatch(initialBatch, dbFilePaths);
+    await processBatch(initialBatch, dbFilePaths, sourceId);
 
     // Process the rest of the library in the background
     setTimeout(async () => {
@@ -567,7 +703,7 @@ async function processLibrary(musicFolder: string, incremental = false) {
       // Skip files we've already processed in the initial batch
       for (let i = initialBatch.length; i < allFiles.length; i += batchSize) {
         const batch = allFiles.slice(i, i + batchSize);
-        await processBatch(batch, dbFilePaths);
+        await processBatch(batch, dbFilePaths, sourceId);
 
         // Yield to UI thread periodically but not too often (increased from 10ms)
         if (i % (batchSize * 5) === 0) {
@@ -577,6 +713,14 @@ async function processLibrary(musicFolder: string, incremental = false) {
 
       // Final cleanup - remove orphaned records
       await cleanupOrphanedRecords(allFiles);
+
+      // Update source file count if we have a sourceId
+      if (sourceId) {
+        const songCount = await db.select({ count: sql`count(*)` })
+          .from(songs)
+          .where(eq(songs.sourceId, sourceId));
+        await LibrarySourceManager.updateSourceStats(sourceId, Number(songCount[0].count));
+      }
 
       console.log(
         `Library processing completed in ${(Date.now() - startTime) / 1000} seconds`,
@@ -592,7 +736,7 @@ async function processLibrary(musicFolder: string, incremental = false) {
 
     for (let i = 0; i < allFiles.length; i += batchSize) {
       const batch = allFiles.slice(i, i + batchSize);
-      await processBatch(batch, dbFilePaths);
+      await processBatch(batch, dbFilePaths, sourceId);
 
       // Still yield occasionally to prevent potential lockups
       if (i % (batchSize * 3) === 0) {
@@ -601,6 +745,15 @@ async function processLibrary(musicFolder: string, incremental = false) {
     }
 
     await cleanupOrphanedRecords(allFiles);
+
+    // Update source file count if we have a sourceId
+    if (sourceId) {
+      const songCount = await db.select({ count: sql`count(*)` })
+        .from(songs)
+        .where(eq(songs.sourceId, sourceId));
+      await LibrarySourceManager.updateSourceStats(sourceId, Number(songCount[0].count));
+    }
+
     console.log(
       `Library processing completed in ${(Date.now() - startTime) / 1000} seconds`,
     );
@@ -663,14 +816,14 @@ function scanImmediateDirectory(dir: string): string[] {
   return results;
 }
 
-async function processBatch(files: string[], dbFilePaths: Set<string>) {
+async function processBatch(files: string[], dbFilePaths: Set<string>, sourceId?: number) {
   const albumCache = new Map();
 
   for (const file of files) {
     try {
       if (!dbFilePaths.has(file)) {
         // New file - add to database
-        await processAudioFile(file, albumCache);
+        await processAudioFile(file, albumCache, sourceId);
       }
     } catch (error) {
       console.error(`Error processing file ${file}:`, error);
@@ -678,7 +831,7 @@ async function processBatch(files: string[], dbFilePaths: Set<string>) {
   }
 }
 
-async function processAudioFile(file: string, albumCache: Map<string, any>) {
+async function processAudioFile(file: string, albumCache: Map<string, any>, sourceId?: number) {
   try {
     // Use more efficient metadata parsing with stripped options
     const metadata = await parseFile(file, {
@@ -790,6 +943,7 @@ async function processAudioFile(file: string, albumCache: Map<string, any>) {
       artist: metadata.common.artist || "Unknown Artist",
       duration: Math.round(metadata.format.duration || 0),
       albumId: album.id,
+      sourceId: sourceId || null,
     });
   } catch (error) {
     console.error(`Error processing audio file ${file}:`, error);
@@ -887,14 +1041,11 @@ async function cleanupOrphanedRecords(currentFiles: string[]) {
     for (let i = 0; i < deletedFiles.length; i += batchSize) {
       const batch = deletedFiles.slice(i, i + batchSize);
 
-      await db.transaction(async (tx) => {
-        for (const file of batch) {
-          await tx
-            .delete(playlistSongs)
-            .where(eq(playlistSongs.songId, file.id));
-          await tx.delete(songs).where(eq(songs.id, file.id));
-        }
-      });
+      // BetterSQLite3 doesn't support async transactions, so we'll execute the deletes directly
+      for (const file of batch) {
+        await db.delete(playlistSongs).where(eq(playlistSongs.songId, file.id));
+        await db.delete(songs).where(eq(songs.id, file.id));
+      }
     }
   }
 
@@ -913,10 +1064,39 @@ async function cleanupOrphanedRecords(currentFiles: string[]) {
   }
 }
 
+// Clear all songs from the library
+export const clearAllSongs = async (): Promise<number> => {
+  try {
+    // Get count of songs before clearing
+    const songCount = await db.select({ count: sql`count(*)` }).from(songs);
+    const deletedCount = Number(songCount[0].count);
+
+    // Delete all songs and related data
+    // BetterSQLite3 doesn't support async transactions, execute directly
+    await db.delete(playlistSongs).execute();
+    await db.delete(songs).execute();
+    await db.delete(albums).execute();
+    await db.update(librarySources)
+      .set({ fileCount: 0, lastScanned: null })
+      .execute();
+
+    // Clear image cache
+    processedImages.clear();
+
+    return deletedCount;
+  } catch (error) {
+    console.error("Error clearing all songs:", error);
+    throw error;
+  }
+};
+
 // Migrate database to add columns that might be missing
 export const migrateDatabase = async () => {
   try {
     console.log("Checking database schema for migrations...");
+
+    // Run library sources migration first - pass the raw sqlite instance
+    addLibrarySourcesMigration(sqlite);
 
     // Check if LastFM columns exist in settings table
     const tableInfo = sqlite
@@ -996,29 +1176,62 @@ export const getArtistWithAlbums = async (artist: string) => {
       };
     }
 
-    // Get all albums by this artist
+    // Get all albums by this artist that have songs from enabled sources
     const artistAlbums = await db
       .select()
       .from(albums)
-      .where(eq(albums.artist, artist))
+      .where(and(
+        eq(albums.artist, artist),
+        exists(
+          db.select()
+            .from(songs)
+            .innerJoin(librarySources, eq(songs.sourceId, librarySources.id))
+            .where(and(
+              eq(songs.albumId, albums.id),
+              eq(librarySources.enabled, true)
+            ))
+        )
+      ))
       .orderBy(albums.year);
 
-    // Get all songs by this artist (across all albums)
+    // Get all songs by this artist (across all albums) from enabled sources only
     const artistSongs = await db.query.songs.findMany({
-      where: eq(songs.artist, artist),
+      where: (songs, { exists }) => and(
+        eq(songs.artist, artist),
+        exists(
+          db.select()
+            .from(librarySources)
+            .where(and(
+              eq(librarySources.id, songs.sourceId),
+              eq(librarySources.enabled, true)
+            ))
+        )
+      ),
       with: {
         album: true,
+        source: true
       },
       orderBy: (songs, { asc }) => [asc(songs.name)],
     });
 
-    // Group songs by albums for better organization
+    // Group songs by albums for better organization - only songs from enabled sources
     const albumsWithSongs = await Promise.all(
       artistAlbums.map(async (album) => {
         const albumSongs = await db.query.songs.findMany({
-          where: eq(songs.albumId, album.id),
+          where: (songs, { exists }) => and(
+            eq(songs.albumId, album.id),
+            exists(
+              db.select()
+                .from(librarySources)
+                .where(and(
+                  eq(librarySources.id, songs.sourceId),
+                  eq(librarySources.enabled, true)
+                ))
+            )
+          ),
           with: {
             album: true,
+            source: true
           },
           orderBy: (songs, { asc }) => [asc(songs.name)],
         });
@@ -1057,21 +1270,34 @@ export const searchSongs = async (query: string) => {
 
   // Efficiently search for songs matching the query across name, artist and album name
   const searchResults = await db.query.songs.findMany({
-    where: or(
-      like(songs.name, searchTerm),
-      like(songs.artist, searchTerm),
-      // Join with albums to search by album name
+    where: (songs, { exists }) => and(
+      // Filter by enabled library sources
       exists(
-        db
-          .select()
-          .from(albums)
-          .where(
-            and(eq(albums.id, songs.albumId), like(albums.name, searchTerm)),
-          ),
+        db.select()
+          .from(librarySources)
+          .where(and(
+            eq(librarySources.id, songs.sourceId),
+            eq(librarySources.enabled, true)
+          ))
       ),
+      // Search query
+      or(
+        like(songs.name, searchTerm),
+        like(songs.artist, searchTerm),
+        // Join with albums to search by album name
+        exists(
+          db
+            .select()
+            .from(albums)
+            .where(
+              and(eq(albums.id, songs.albumId), like(albums.name, searchTerm)),
+            ),
+        ),
+      )
     ),
     with: {
       album: true,
+      source: true
     },
     // Limit to a reasonable number to avoid performance issues
     limit: 100,
@@ -1085,10 +1311,21 @@ export const getAlbumsWithDuration = async (
   page: number = 1,
   limit: number = 15,
 ) => {
-  // Get albums with pagination, including a more efficient duration calculation
+  // Get albums with pagination - only albums with songs from enabled sources
   const albumsResult = await db
     .select()
     .from(albums)
+    .where(
+      exists(
+        db.select()
+          .from(songs)
+          .innerJoin(librarySources, eq(songs.sourceId, librarySources.id))
+          .where(and(
+            eq(songs.albumId, albums.id),
+            eq(librarySources.enabled, true)
+          ))
+      )
+    )
     .orderBy(albums.name)
     .limit(limit)
     .offset((page - 1) * limit);
@@ -1101,14 +1338,18 @@ export const getAlbumsWithDuration = async (
     return [];
   }
 
-  // Query total durations for all albums in a single database call
+  // Query total durations for all albums in a single database call - only from enabled sources
   const durationResults = await db
     .select({
       albumId: songs.albumId,
       totalDuration: sql`SUM(${songs.duration})`,
     })
     .from(songs)
-    .where(sql`${songs.albumId} IN (${albumIds.join(",")})`)
+    .innerJoin(librarySources, eq(songs.sourceId, librarySources.id))
+    .where(and(
+      sql`${songs.albumId} IN (${albumIds.join(",")})`,
+      eq(librarySources.enabled, true)
+    ))
     .groupBy(songs.albumId);
 
   // Create a duration lookup map for efficient access

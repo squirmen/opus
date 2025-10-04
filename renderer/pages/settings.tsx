@@ -6,6 +6,7 @@ import {
   IconRefresh,
   IconLogout,
   IconX,
+  IconTrash,
 } from "@tabler/icons-react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -27,6 +28,7 @@ import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
+import LibrarySourcesManager from "@/components/settings/library-sources";
 import {
   initializeLastFM,
   getSessionKey,
@@ -412,6 +414,28 @@ export default function Settings() {
       .catch(() => setMusicLoading(false));
   };
 
+  const clearLibrary = () => {
+    if (!confirm("This will remove all songs from your library. Are you sure?")) {
+      return;
+    }
+    setMusicLoading(true);
+    window.ipc
+      .invoke("clearLibrary")
+      .then(() => {
+        setMusicLoading(false);
+        toast(
+          <div className="flex w-fit items-center gap-2 text-xs">
+            <IconCheck className="text-green-400" stroke={2} size={16} />
+            Library cleared successfully.
+          </div>,
+        );
+        window.ipc.invoke("getLibraryStats").then((response) => {
+          setStats(response);
+        });
+      })
+      .catch(() => setMusicLoading(false));
+  };
+
   useEffect(() => {
     return () => {
       if (previewUrl.startsWith("blob:")) {
@@ -539,30 +563,7 @@ export default function Settings() {
                     </div>
                   </div>
                 </div>
-                <div className="flex w-full items-center gap-2">
-                  <Input
-                    value={settings && settings.musicFolder}
-                    className="w-full"
-                    disabled
-                  />
-                  <Button
-                    className="w-fit justify-between text-xs text-nowrap"
-                    onClick={rescanLibrary}
-                  >
-                    <IconRefresh stroke={2} className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    className="w-fit justify-between text-xs text-nowrap"
-                    onClick={scanLibrary}
-                  >
-                    Update Music Folder
-                    {musicLoading ? (
-                      <Spinner className="h-3.5 w-3.5" />
-                    ) : (
-                      <IconArrowRight stroke={2} className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
-                </div>
+                <LibrarySourcesManager />
               </div>
             </div>
           </div>

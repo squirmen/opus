@@ -20,6 +20,17 @@ export const albums = sqliteTable("albums", {
   cover: text("cover"),
 });
 
+export const librarySources = sqliteTable("librarySources", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  path: text("path").notNull().unique(),
+  name: text("name").notNull(),
+  type: text("type").notNull().default("local"), // local, network, external
+  enabled: integer("enabled", { mode: "boolean" }).default(true),
+  lastScanned: integer("lastScanned"),
+  fileCount: integer("fileCount").default(0),
+  createdAt: integer("createdAt").notNull(),
+});
+
 export const songs = sqliteTable("songs", {
   id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
   filePath: text("filePath"),
@@ -27,9 +38,14 @@ export const songs = sqliteTable("songs", {
   artist: text("artist"),
   duration: integer("duration"),
   albumId: integer("albumId").references(() => albums.id),
+  sourceId: integer("sourceId").references(() => librarySources.id),
 });
 
 export const albumsRelations = relations(albums, ({ many }) => ({
+  songs: many(songs),
+}));
+
+export const librarySourcesRelations = relations(librarySources, ({ many }) => ({
   songs: many(songs),
 }));
 
@@ -37,6 +53,10 @@ export const songsRelations = relations(songs, ({ one }) => ({
   album: one(albums, {
     fields: [songs.albumId],
     references: [albums.id],
+  }),
+  source: one(librarySources, {
+    fields: [songs.sourceId],
+    references: [librarySources.id],
   }),
 }));
 
