@@ -623,6 +623,7 @@ export const getRandomLibraryItems = async () => {
 export const initializeData = async (
   musicFolder: string,
   incremental = false,
+  providedSourceId?: number,
 ) => {
   if (!fs.existsSync(musicFolder)) {
     console.error("Music folder does not exist:", musicFolder);
@@ -644,16 +645,18 @@ export const initializeData = async (
       });
     }
 
-    // Update settings
-    const existingSettings = await db
-      .select()
-      .from(settings)
-      .where(eq(settings.id, 1));
+    // Only update settings if we're not scanning a specific source
+    if (!providedSourceId) {
+      const existingSettings = await db
+        .select()
+        .from(settings)
+        .where(eq(settings.id, 1));
 
-    if (existingSettings[0]) {
-      await db.update(settings).set({ musicFolder }).where(eq(settings.id, 1));
-    } else {
-      await db.insert(settings).values({ musicFolder });
+      if (existingSettings[0]) {
+        await db.update(settings).set({ musicFolder }).where(eq(settings.id, 1));
+      } else {
+        await db.insert(settings).values({ musicFolder });
+      }
     }
 
     // Create art directory if it doesn't exist
@@ -661,16 +664,22 @@ export const initializeData = async (
       await fs.promises.mkdir(ART_DIR, { recursive: true });
     }
 
-    // Ensure we have at least one library source
-    let source = await LibrarySourceManager.getSourceByPath(musicFolder);
-    if (!source) {
-      // Migrate from old system or create new source
-      await LibrarySourceManager.migrateFromSingleFolder(musicFolder);
-      source = await LibrarySourceManager.getSourceByPath(musicFolder);
+    // Determine sourceId to use
+    let sourceIdToUse = providedSourceId;
+
+    if (!sourceIdToUse) {
+      // Only try to get/create source if no sourceId was provided
+      let source = await LibrarySourceManager.getSourceByPath(musicFolder);
+      if (!source) {
+        // Migrate from old system or create new source
+        await LibrarySourceManager.migrateFromSingleFolder(musicFolder);
+        source = await LibrarySourceManager.getSourceByPath(musicFolder);
+      }
+      sourceIdToUse = source?.id;
     }
 
     // First pass: Just load metadata or do a full scan based on incremental flag
-    await processLibrary(musicFolder, incremental, source?.id);
+    await processLibrary(musicFolder, incremental, sourceIdToUse);
 
     return true;
   } catch (error) {
@@ -682,7 +691,14 @@ export const initializeData = async (
 // Batch process files to reduce memory usage and improve UI responsiveness
 async function processLibrary(musicFolder: string, incremental = false, sourceId?: number) {
   const startTime = Date.now();
-  const dbFilePaths = await getAllFilePathsFromDb();
+
+  // If we have a specific sourceId and not incremental, clear existing songs from this source
+  if (sourceId && !incremental) {
+    await db.delete(songs).where(eq(songs.sourceId, sourceId));
+  }
+
+  // Only get file paths from the current source when sourceId is provided
+  const dbFilePaths = await getAllFilePathsFromDb(sourceId);
 
   if (incremental) {
     console.log("Starting incremental library scan...");
@@ -761,8 +777,12 @@ async function processLibrary(musicFolder: string, incremental = false, sourceId
 }
 
 // Helper function to get all file paths from database
-async function getAllFilePathsFromDb(): Promise<Set<string>> {
-  const dbFiles = await db.select().from(songs);
+async function getAllFilePathsFromDb(sourceId?: number): Promise<Set<string>> {
+  let query = db.select().from(songs);
+  if (sourceId) {
+    query = query.where(eq(songs.sourceId, sourceId));
+  }
+  const dbFiles = await query;
   return new Set(dbFiles.map((file) => file.filePath));
 }
 

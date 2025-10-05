@@ -297,13 +297,15 @@ ipcMain.handle("scanLibrarySources", async (_, sourceIds?: number[]) => {
           where: eq(librarySources.id, sourceId)
         });
         if (source) {
-          await initializeData(source.path, true);
+          // Use non-incremental scan to properly clear and re-scan
+          await initializeData(source.path, false, source.id);
         }
       }
     } else {
-      const paths = await LibrarySourceManager.getAllScanPaths();
-      for (const path of paths) {
-        await initializeData(path, true);
+      const enabledSources = await LibrarySourceManager.getEnabledSources();
+      for (const source of enabledSources) {
+        // Use non-incremental scan to properly clear and re-scan
+        await initializeData(source.path, false, source.id);
       }
     }
   } catch (error) {
