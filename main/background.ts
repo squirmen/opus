@@ -239,7 +239,9 @@ ipcMain.handle("showOpenDialog", async (_, options) => {
 ipcMain.handle("getLibrarySources", async () => {
   try {
     const { LibrarySourceManager } = await import("./helpers/db/librarySourceManager");
-    return await LibrarySourceManager.getAllSources();
+    const sources = await LibrarySourceManager.getAllSources();
+    logger.info(`Returning ${sources.length} library sources:`, sources.map(s => ({ id: s.id, name: s.name, path: s.path })));
+    return sources;
   } catch (error) {
     logger.error("Failed to get library sources:", error);
     throw error;

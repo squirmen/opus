@@ -853,6 +853,12 @@ async function processBatch(files: string[], dbFilePaths: Set<string>, sourceId?
 
 async function processAudioFile(file: string, albumCache: Map<string, any>, sourceId?: number) {
   try {
+    // Validate sourceId exists
+    if (!sourceId) {
+      console.error(`No sourceId provided for file: ${file}`);
+      return;
+    }
+
     // Use more efficient metadata parsing with stripped options
     const metadata = await parseFile(file, {
       skipPostHeaders: true,
@@ -963,7 +969,7 @@ async function processAudioFile(file: string, albumCache: Map<string, any>, sour
       artist: metadata.common.artist || "Unknown Artist",
       duration: Math.round(metadata.format.duration || 0),
       albumId: album.id,
-      sourceId: sourceId || null,
+      sourceId: sourceId,
     });
   } catch (error) {
     console.error(`Error processing audio file ${file}:`, error);

@@ -28,8 +28,10 @@ export default function LibrarySourcesManager() {
     setLoading(true);
     try {
       const librarySources = await window.ipc.invoke("getLibrarySources");
+      console.log("Loaded sources:", librarySources);
       setSources(librarySources);
     } catch (error) {
+      console.error("Failed to load sources:", error);
       toast(
         <div className="flex w-fit items-center gap-2 text-xs">
           <IconX className="text-red-500" stroke={2} size={16} />
@@ -70,6 +72,7 @@ export default function LibrarySourcesManager() {
   };
 
   const handleRemoveSource = async (sourceId: number, sourceName: string) => {
+    console.log(`Attempting to remove source ${sourceId}: ${sourceName}`);
     if (!window.confirm(`Remove "${sourceName}"? This will delete all songs from this source from your library.`)) {
       return;
     }
@@ -84,6 +87,7 @@ export default function LibrarySourcesManager() {
         </div>
       );
     } catch (error) {
+      console.error(`Failed to remove source ${sourceId}:`, error);
       toast(
         <div className="flex w-fit items-center gap-2 text-xs">
           <IconX className="text-red-500" stroke={2} size={16} />
@@ -94,10 +98,12 @@ export default function LibrarySourcesManager() {
   };
 
   const handleToggleSource = async (sourceId: number, enabled: boolean) => {
+    console.log(`Toggling source ${sourceId} from ${enabled} to ${!enabled}`);
     try {
       await window.ipc.invoke("toggleLibrarySource", sourceId, !enabled);
       await loadSources();
     } catch (error) {
+      console.error(`Failed to toggle source ${sourceId}:`, error);
       toast(
         <div className="flex w-fit items-center gap-2 text-xs">
           <IconX className="text-red-500" stroke={2} size={16} />
