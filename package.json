@@ -1,6 +1,6 @@
 {
   "private": true,
-t  "name": "opus",
+  "name": "opus",
   "description": "A beautiful music player for audiophiles. Forked from Wora with enhanced features including artist pages, crossfade/gapless playback, multi-library support, and ALAC/M4A codec support.",
   "version": "1.0.0",
   "author": {
