@@ -52,8 +52,8 @@ Upcoming features in development:
 1. **Clone the repository:**
 
    ```sh
-   git clone https://github.com/squirmen/wora.git
-   cd wora
+   git clone https://github.com/squirmen/opus.git
+   cd opus
    ```
 
 2. **Install dependencies:**
