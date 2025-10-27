@@ -1339,15 +1339,32 @@ export const getArtistWithAlbums = async (artist: string) => {
 
 export const getAllArtists = async () => {
   try {
+    // Only get artists from albums that have songs from enabled sources
     const albumArtists = await db
       .selectDistinct({ artist: albums.artist })
       .from(albums)
-      .where(isNotNull(albums.artist));
+      .where(and(
+        isNotNull(albums.artist),
+        exists(
+          db.select()
+            .from(songs)
+            .innerJoin(librarySources, eq(songs.sourceId, librarySources.id))
+            .where(and(
+              eq(songs.albumId, albums.id),
+              eq(librarySources.enabled, true)
+            ))
+        )
+      ));
 
+    // Only get artists from songs from enabled sources
     const songArtists = await db
       .selectDistinct({ artist: songs.artist })
       .from(songs)
-      .where(isNotNull(songs.artist));
+      .innerJoin(librarySources, eq(songs.sourceId, librarySources.id))
+      .where(and(
+        isNotNull(songs.artist),
+        eq(librarySources.enabled, true)
+      ));
 
     const artistNames = new Set<string>();
     albumArtists.forEach(a => {
@@ -1357,6 +1374,7 @@ export const getAllArtists = async () => {
       if (s.artist) artistNames.add(s.artist);
     });
 
+    // Only count albums that have songs from enabled sources
     const artistStats = await db
       .select({
         artist: albums.artist,
@@ -1364,16 +1382,32 @@ export const getAllArtists = async () => {
         cover: sql<string>`MAX(${albums.cover})`
       })
       .from(albums)
-      .where(isNotNull(albums.artist))
+      .where(and(
+        isNotNull(albums.artist),
+        exists(
+          db.select()
+            .from(songs)
+            .innerJoin(librarySources, eq(songs.sourceId, librarySources.id))
+            .where(and(
+              eq(songs.albumId, albums.id),
+              eq(librarySources.enabled, true)
+            ))
+        )
+      ))
       .groupBy(albums.artist);
 
+    // Only count songs from enabled sources
     const songStats = await db
       .select({
         artist: songs.artist,
         songCount: sql<number>`COUNT(*)`
       })
       .from(songs)
-      .where(isNotNull(songs.artist))
+      .innerJoin(librarySources, eq(songs.sourceId, librarySources.id))
+      .where(and(
+        isNotNull(songs.artist),
+        eq(librarySources.enabled, true)
+      ))
       .groupBy(songs.artist);
 
     const songCountMap = new Map<string, number>();
