@@ -295,7 +295,20 @@ ipcMain.handle("getLibrarySources", async () => {
 ipcMain.handle("addLibrarySource", async (_, path: string, name: string) => {
   try {
     const { LibrarySourceManager } = await import("./helpers/db/librarySourceManager");
-    return await LibrarySourceManager.addSource(path, name);
+    const { initializeData } = await import("./helpers/db/connectDB");
+
+    // Add the library source
+    const newSource = await LibrarySourceManager.addSource(path, name);
+
+    // Automatically scan the new library source
+    logger.info(`Auto-scanning newly added library: ${name} (${path})`);
+    await initializeData(path, true);
+
+    // Update the source stats
+    const files = await db.select().from(songs).where(eq(songs.sourceId, newSource.id));
+    await LibrarySourceManager.updateSourceStats(newSource.id, files.length);
+
+    return newSource;
   } catch (error) {
     logger.error("Failed to add library source:", error);
     throw error;
