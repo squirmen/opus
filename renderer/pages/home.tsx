@@ -85,9 +85,9 @@ export default function Home() {
     <div className="flex flex-col gap-8">
       <div className="flex flex-row items-center justify-between">
         <div className="flex flex-col">
-          <div className="mt-4 text-lg leading-6 font-medium">Home</div>
+          <div className="mt-4 text-lg leading-6 font-medium">Welcome to Opus</div>
           <div className="opacity-50">
-            The coolest music library in the world.
+            Your audiophile music library.
           </div>
         </div>
         <Button

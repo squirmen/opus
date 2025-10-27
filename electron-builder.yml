@@ -1,6 +1,6 @@
-appId: com.wora.player
-productName: Wora
-copyright: Copyright © 2024 Aaryan Kapoor
+appId: com.opus.player
+productName: Opus
+copyright: Copyright © 2024 Wora, 2025 Tim Welch
 directories:
   output: dist
   buildResources: resources
@@ -10,7 +10,7 @@ files:
       - package.json
       - app
 publish: null
-artifactName: Wora [v${version}].${ext}
+artifactName: Opus-${version}.${ext}
 linux:
   target:
     - AppImage
