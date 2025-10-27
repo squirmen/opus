@@ -69,6 +69,7 @@ if (isProd) {
 }
 
 let mainWindow: any;
+let miniPlayerWindow: any;
 let settings: any;
 
 // Global cache for frequently accessed data
@@ -186,6 +187,41 @@ const initializeLibrary = async () => {
       backgroundThrottling: false,
     },
   });
+
+  // Function to create mini-player window
+  const createMiniPlayer = async () => {
+    if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+      miniPlayerWindow.show();
+      return;
+    }
+
+    miniPlayerWindow = createWindow("mini-player", {
+      width: 400,
+      height: 100,
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      skipTaskbar: true,
+      webPreferences: {
+        preload: path.join(__dirname, "preload.js"),
+        backgroundThrottling: false,
+      },
+    });
+
+    if (isProd) {
+      await miniPlayerWindow.loadURL("app://./mini-player");
+    } else {
+      const port = process.argv[2];
+      await miniPlayerWindow.loadURL(`http://localhost:${port}/mini-player`);
+    }
+
+    miniPlayerWindow.on("closed", () => {
+      miniPlayerWindow = null;
+    });
+  };
 
   ipcMain.on("quitApp", async () => {
     return app.quit();
@@ -745,6 +781,54 @@ ipcMain.handle("updateLastFmSettings", async (_, data) => {
   } catch (error) {
     console.error("Error in updateLastFmSettings:", error);
     return false;
+  }
+});
+
+// Mini-player IPC handlers
+ipcMain.handle("show-mini-player", async () => {
+  try {
+    await createMiniPlayer();
+    return true;
+  } catch (error) {
+    logger.error("Failed to show mini-player:", error);
+    return false;
+  }
+});
+
+ipcMain.on("mini-player-close", () => {
+  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+    miniPlayerWindow.close();
+  }
+});
+
+ipcMain.on("mini-player-play-pause", () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("mini-player-command", "play-pause");
+  }
+});
+
+ipcMain.on("mini-player-next", () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("mini-player-command", "next");
+  }
+});
+
+ipcMain.on("mini-player-previous", () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("mini-player-command", "previous");
+  }
+});
+
+ipcMain.on("mini-player-request-state", () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("mini-player-request-state", null);
+  }
+});
+
+// Forward playback updates to mini-player
+ipcMain.on("update-mini-player", (_, data) => {
+  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+    miniPlayerWindow.webContents.send("mini-player-update", data);
   }
 });
 

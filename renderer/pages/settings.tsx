@@ -607,6 +607,37 @@ export default function Settings() {
             </div>
           </div>
 
+          {/* Mini-Player Section */}
+          <div className="w-full">
+            <div className="wora-border rounded-2xl p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col">
+                  <Label className="text-sm font-medium">Mini-Player</Label>
+                  <span className="text-xs opacity-50">
+                    Show a compact always-on-top player window
+                  </span>
+                </div>
+                <Button
+                  onClick={async () => {
+                    const success = await window.ipc.invoke("show-mini-player");
+                    if (success) {
+                      toast(
+                        <div className="flex w-fit items-center gap-2 text-xs">
+                          <IconCheck className="text-green-400" stroke={2} size={16} />
+                          Mini-player opened
+                        </div>,
+                      );
+                    }
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <IconTransitionRight stroke={2} size={18} />
+                  Show Mini-Player
+                </Button>
+              </div>
+            </div>
+          </div>
+
           {/* Last.fm Integration Section */}
           <div className="flex w-full flex-col gap-4">
             <div className="flex items-center gap-2">
