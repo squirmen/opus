@@ -9,6 +9,7 @@ import { sqlite } from "./createDB";
 import { app } from "electron";
 import { LibrarySourceManager } from "./librarySourceManager";
 import { addLibrarySourcesMigration } from "./migrations/add-library-sources";
+import { addMetadataSettingsMigration } from "./migrations/add-metadata-settings";
 
 export const db: BetterSQLite3Database<typeof schema> = drizzle(sqlite, {
   schema,
@@ -867,38 +868,52 @@ async function processAudioFile(file: string, albumCache: Map<string, any>, sour
       includeChapters: false,
     });
 
-    // Skip files with insufficient metadata
-    if (!metadata.common.title) {
+    // Check if we should skip files without metadata
+    const settingsData = await db.select().from(settings).limit(1);
+    const includeFilesWithoutMetadata = settingsData[0]?.includeFilesWithoutMetadata !== false; // Default to true
+
+    // Skip files without title metadata if setting is disabled
+    if (!metadata.common.title && !includeFilesWithoutMetadata) {
+      console.log(`Skipping file without metadata: ${file}`);
       return;
     }
+
+    // Use filename as fallback if no title metadata
+    const fileBasename = path.basename(file, path.extname(file));
+    const songTitle = metadata.common.title || fileBasename;
 
     const albumFolder = path.dirname(file);
     let artPath = null;
 
-    // Try to find album art in efficient order: cache first, then folder, then embedded
-    // Only process art if we need to show it (reduces I/O operations)
-    if (albumCache.has(`${albumFolder}-art`)) {
-      // Reuse already processed art path from cache
-      artPath = albumCache.get(`${albumFolder}-art`);
-    } else {
-      // First check for external images as they're typically higher quality
-      const albumImage = findFirstImageInDirectory(albumFolder);
+    // Create a unique key for this specific album/artist combination
+    const albumArtKey = `${metadata.common.album || "Unknown Album"}-${metadata.common.artist || "Unknown Artist"}-art`;
 
-      if (albumImage) {
-        artPath = await processAlbumArt(albumImage);
-      } else if (
+    // Try to find album art in efficient order: cache first, then embedded, then folder
+    if (albumCache.has(albumArtKey)) {
+      // Reuse already processed art path from cache for this specific album
+      artPath = albumCache.get(albumArtKey);
+    } else {
+      // First check for embedded art (most accurate for the specific track)
+      if (
         metadata.common.picture &&
         metadata.common.picture.length > 0
       ) {
-        // Fall back to embedded art if available
         const cover = selectCover(metadata.common.picture);
         if (cover) {
           artPath = await processEmbeddedArt(cover);
         }
       }
 
-      // Cache the art path for this folder to avoid redundant processing
-      albumCache.set(`${albumFolder}-art`, artPath);
+      // Fall back to folder image if no embedded art
+      if (!artPath) {
+        const albumImage = findFirstImageInDirectory(albumFolder);
+        if (albumImage) {
+          artPath = await processAlbumArt(albumImage);
+        }
+      }
+
+      // Cache the art path for this specific album to avoid redundant processing
+      albumCache.set(albumArtKey, artPath);
     }
 
     // Get or create album with better caching
@@ -965,7 +980,7 @@ async function processAudioFile(file: string, albumCache: Map<string, any>, sour
     // Add the song using pre-calculated values to avoid repeated operations
     await db.insert(songs).values({
       filePath: file,
-      name: metadata.common.title,
+      name: songTitle,  // Use the title with filename fallback
       artist: metadata.common.artist || "Unknown Artist",
       duration: Math.round(metadata.format.duration || 0),
       albumId: album.id,
@@ -1123,6 +1138,9 @@ export const migrateDatabase = async () => {
 
     // Run library sources migration first - pass the raw sqlite instance
     addLibrarySourcesMigration(sqlite);
+
+    // Run metadata settings migration
+    addMetadataSettingsMigration(sqlite);
 
     // Check if LastFM columns exist in settings table
     const tableInfo = sqlite

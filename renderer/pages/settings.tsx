@@ -66,6 +66,7 @@ type Settings = {
   lastFmSessionKey?: string;
   enableLastFm?: boolean;
   scrobbleThreshold?: number;
+  includeFilesWithoutMetadata?: boolean;
 };
 
 type LastFmSettings = {
@@ -94,6 +95,7 @@ export default function Settings() {
   } | null>(null);
   const [lastFmUserInfo, setLastFmUserInfo] = useState(null);
   const [logoutLoading, setLogoutLoading] = useState(false);
+  const [includeFilesWithoutMetadata, setIncludeFilesWithoutMetadata] = useState(true);
 
   useEffect(() => {
     window.ipc.invoke("getSettings").then((response) => {
@@ -103,6 +105,9 @@ export default function Settings() {
           ? `wora://${response.profilePicture}`
           : "/userPicture.png",
       );
+      if (response?.includeFilesWithoutMetadata !== undefined) {
+        setIncludeFilesWithoutMetadata(response.includeFilesWithoutMetadata);
+      }
     });
 
     window.ipc.invoke("getLastFmSettings").then((response) => {
@@ -564,6 +569,32 @@ export default function Settings() {
                   </div>
                 </div>
                 <LibrarySourcesManager />
+
+                {/* Metadata Settings */}
+                <div className="mt-4 flex items-center justify-between rounded-lg border border-white/5 p-4">
+                  <div className="flex flex-col">
+                    <Label className="text-sm font-medium">Include Files Without Metadata</Label>
+                    <span className="text-xs opacity-50">
+                      Import audio files even if they don't have proper metadata tags
+                    </span>
+                  </div>
+                  <Switch
+                    checked={includeFilesWithoutMetadata}
+                    onCheckedChange={async (checked) => {
+                      setIncludeFilesWithoutMetadata(checked);
+                      await window.ipc.invoke("updateSettings", {
+                        ...settings,
+                        includeFilesWithoutMetadata: checked,
+                      });
+                      toast(
+                        <div className="flex w-fit items-center gap-2 text-xs">
+                          <IconCheck className="text-green-400" stroke={2} size={16} />
+                          Metadata settings updated. Rescan library to apply changes.
+                        </div>,
+                      );
+                    }}
+                  />
+                </div>
               </div>
             </div>
           </div>

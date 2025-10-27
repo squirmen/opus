@@ -218,9 +218,10 @@ export default function LibrarySourcesManager() {
             No library sources configured. Click "Add Source" to add your first music folder.
           </div>
         ) : (
-          sources.map((source) => (
+          sources.map((source, index) => (
             <div
-              key={source.id}
+              key={`library-source-${source.id}`}
+              data-source-id={source.id}
               className={`p-3 rounded-lg border ${
                 source.enabled ? "border-gray-300" : "border-gray-200 opacity-50"
               } hover:bg-gray-50 transition-colors`}
@@ -259,27 +260,40 @@ export default function LibrarySourcesManager() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => handleScanSource(source.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      console.log(`Scan button clicked for source ${source.id}: ${source.name}`);
+                      handleScanSource(source.id);
+                    }}
                     disabled={scanning || !source.enabled}
                     className="p-1.5 text-gray-600 hover:text-gray-800 disabled:opacity-30 disabled:cursor-not-allowed"
                     title="Rescan this source"
+                    type="button"
                   >
                     <IconRefresh stroke={2} className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
                   </button>
                   <button
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      console.log(`Edit button clicked for source ${source.id}: ${source.name}`);
                       setEditingId(source.id);
                       setEditName(source.name);
                     }}
                     className="p-1.5 text-gray-600 hover:text-gray-800"
                     title="Rename source"
+                    type="button"
                   >
                     <IconEdit stroke={2} className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => handleToggleSource(source.id, source.enabled)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      console.log(`Toggle button clicked for source ${source.id}: ${source.name}, enabled: ${source.enabled}`);
+                      handleToggleSource(source.id, source.enabled);
+                    }}
                     className="p-1.5 text-gray-600 hover:text-gray-800"
                     title={source.enabled ? "Disable source" : "Enable source"}
+                    type="button"
                   >
                     {source.enabled ? (
                       <IconToggleRight stroke={2} className="w-4 h-4 text-green-500" />
@@ -288,9 +302,14 @@ export default function LibrarySourcesManager() {
                     )}
                   </button>
                   <button
-                    onClick={() => handleRemoveSource(source.id, source.name)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      console.log(`Remove button clicked for source ${source.id}: ${source.name}`);
+                      handleRemoveSource(source.id, source.name);
+                    }}
                     className="p-1.5 text-red-500 hover:text-red-700"
                     title="Remove source"
+                    type="button"
                   >
                     <IconTrash stroke={2} className="w-4 h-4" />
                   </button>

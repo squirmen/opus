@@ -38,6 +38,7 @@ import { eq, sql, and } from "drizzle-orm";
 import { songs, librarySources } from "./helpers/db/schema";
 import { initializeLastFmHandlers } from "./helpers/lastfm-service";
 import * as electronLog from "electron-log";
+import { isALACFile, transcodeALACToAAC, cleanupTranscodedCache } from "./helpers/audioTranscoder";
 
 // Configure application logging for production
 electronLog.transports.file.level = "info";
@@ -124,9 +125,47 @@ const initializeLibrary = async () => {
   // Initialize Last.fm IPC handlers
   initializeLastFmHandlers();
 
+  // Clean up old transcoded files periodically (every hour)
+  setInterval(() => {
+    cleanupTranscodedCache();
+  }, 60 * 60 * 1000);
+
   // @hiaaryan: Using Depreciated API [Seeking Not Supported with Net]
-  protocol.registerFileProtocol("wora", (request, callback) => {
-    callback({ path: decodeURIComponent(request.url.replace("wora://", "")) });
+  protocol.registerFileProtocol("wora", async (request, callback) => {
+    const filePath = decodeURIComponent(request.url.replace("wora://", ""));
+
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      logger.error(`Protocol handler - File not found: ${filePath}`);
+      callback({ path: filePath });
+      return;
+    }
+
+    // Check for M4A/MP4 files that might be ALAC
+    if (filePath.toLowerCase().match(/\.(m4a|mp4|m4b)$/)) {
+      logger.info(`Protocol handler - Checking audio file: ${filePath}`);
+
+      // Check if it's an ALAC file
+      const isALAC = await isALACFile(filePath);
+
+      if (isALAC) {
+        logger.info(`Protocol handler - ALAC detected, transcoding: ${filePath}`);
+
+        // Transcode ALAC to AAC
+        const transcodedPath = await transcodeALACToAAC(filePath);
+
+        if (transcodedPath) {
+          logger.info(`Protocol handler - Serving transcoded file: ${transcodedPath}`);
+          callback({ path: transcodedPath });
+          return;
+        } else {
+          logger.error(`Protocol handler - Transcoding failed for: ${filePath}`);
+        }
+      }
+    }
+
+    // Serve original file if not ALAC or transcoding failed
+    callback({ path: filePath });
   });
 
   mainWindow = createWindow("main", {

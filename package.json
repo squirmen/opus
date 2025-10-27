@@ -1,11 +1,11 @@
 {
   "private": true,
-  "name": "wora",
-  "description": "🎧 A beautiful player for audiophiles.",
-  "version": "0.4.0-beta2",
+t  "name": "opus",
+  "description": "A beautiful music player for audiophiles. Forked from Wora with enhanced features including artist pages, crossfade/gapless playback, multi-library support, and ALAC/M4A codec support.",
+  "version": "1.0.0",
   "author": {
-    "name": "Aaryan Kapoor",
-    "email": "hi.aaryankapoor@gmail.com"
+    "name": "Tim Welch",
+    "email": "your-email@example.com"
   },
   "main": "app/background.js",
   "scripts": {

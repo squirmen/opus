@@ -727,26 +727,46 @@ export const Player = () => {
     // For M4A/M4B/MP4 files, let Howler auto-detect the format since they can contain various codecs
     const fileExtension = song.filePath.split(".").pop()?.toLowerCase();
     const autoDetectFormats = ['m4a', 'm4b', 'mp4'];
+
+    // Don't specify format for auto-detect files to allow Howler to detect ALAC/AAC automatically
     const formats = autoDetectFormats.includes(fileExtension || '') ? undefined : [fileExtension];
 
+    // Encode the file path properly, handling special characters
+    const audioUrl = `wora://${encodeURIComponent(song.filePath)}`;
+
+    console.log("Loading audio file:", {
+      filePath: song.filePath,
+      extension: fileExtension,
+      formats: formats,
+      url: audioUrl
+    });
+
     const sound = new Howl({
-      src: [`wora://${encodeURIComponent(song.filePath)}`],
+      src: [audioUrl],
       format: formats,
       html5: true,
       autoplay: true,
       preload: true,
       volume: isMuted ? 0 : volume,
       onload: () => {
+        console.log("Audio loaded successfully:", song.filePath);
         setSeekPosition(0);
         setIsPlaying(true);
         updateDiscordState(1, song);
         window.ipc.send("update-window", [true, song?.artist, song?.name]);
       },
-      onloaderror: (error) => {
-        console.error("Error loading audio:", error);
+      onloaderror: (id, error) => {
+        console.error("Error loading audio file:", {
+          filePath: song.filePath,
+          url: audioUrl,
+          error: error,
+          id: id
+        });
         setIsPlaying(false);
+
+        // ALAC files are now automatically transcoded, so this should rarely happen
         toast(
-          <NotificationToast success={false} message="Failed to load audio" />,
+          <NotificationToast success={false} message={`Failed to load audio: ${song.name}`} />,
         );
       },
       onend: () => {
