@@ -24,6 +24,14 @@ Beyond the original Wora feature set, Opus includes:
 - **Volume Normalization** - Consistent playback levels across tracks
 - **UI Enhancements** - Improved performance and user experience throughout
 
+## Roadmap
+
+Upcoming features in development:
+
+- **Extended Format Support** - Comprehensive codec support for nearly all audio formats
+- **MusicBrainz Integration** - Replace Last.fm with MusicBrainz for better metadata
+- **Enhanced Multi-Library** - Complete multi-library management system
+
 ## Core Features (from Wora)
 
 - Create and manage playlists
