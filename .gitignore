@@ -13,3 +13,4 @@ dist
 .env.production
 .vercel
 .idea/
+tsconfig.tsbuildinfo

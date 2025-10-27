@@ -6,6 +6,7 @@ import {
   IconRefresh,
   IconLogout,
   IconX,
+  IconTrash,
 } from "@tabler/icons-react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -27,6 +28,7 @@ import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
+import LibrarySourcesManager from "@/components/settings/library-sources";
 import {
   initializeLastFM,
   getSessionKey,
@@ -64,6 +66,7 @@ type Settings = {
   lastFmSessionKey?: string;
   enableLastFm?: boolean;
   scrobbleThreshold?: number;
+  includeFilesWithoutMetadata?: boolean;
 };
 
 type LastFmSettings = {
@@ -92,6 +95,7 @@ export default function Settings() {
   } | null>(null);
   const [lastFmUserInfo, setLastFmUserInfo] = useState(null);
   const [logoutLoading, setLogoutLoading] = useState(false);
+  const [includeFilesWithoutMetadata, setIncludeFilesWithoutMetadata] = useState(true);
 
   useEffect(() => {
     window.ipc.invoke("getSettings").then((response) => {
@@ -101,6 +105,9 @@ export default function Settings() {
           ? `wora://${response.profilePicture}`
           : "/userPicture.png",
       );
+      if (response?.includeFilesWithoutMetadata !== undefined) {
+        setIncludeFilesWithoutMetadata(response.includeFilesWithoutMetadata);
+      }
     });
 
     window.ipc.invoke("getLastFmSettings").then((response) => {
@@ -412,6 +419,28 @@ export default function Settings() {
       .catch(() => setMusicLoading(false));
   };
 
+  const clearLibrary = () => {
+    if (!confirm("This will remove all songs from your library. Are you sure?")) {
+      return;
+    }
+    setMusicLoading(true);
+    window.ipc
+      .invoke("clearLibrary")
+      .then(() => {
+        setMusicLoading(false);
+        toast(
+          <div className="flex w-fit items-center gap-2 text-xs">
+            <IconCheck className="text-green-400" stroke={2} size={16} />
+            Library cleared successfully.
+          </div>,
+        );
+        window.ipc.invoke("getLibraryStats").then((response) => {
+          setStats(response);
+        });
+      })
+      .catch(() => setMusicLoading(false));
+  };
+
   useEffect(() => {
     return () => {
       if (previewUrl.startsWith("blob:")) {
@@ -539,29 +568,32 @@ export default function Settings() {
                     </div>
                   </div>
                 </div>
-                <div className="flex w-full items-center gap-2">
-                  <Input
-                    value={settings && settings.musicFolder}
-                    className="w-full"
-                    disabled
+                <LibrarySourcesManager />
+
+                {/* Metadata Settings */}
+                <div className="mt-4 flex items-center justify-between rounded-lg border border-white/5 p-4">
+                  <div className="flex flex-col">
+                    <Label className="text-sm font-medium">Include Files Without Metadata</Label>
+                    <span className="text-xs opacity-50">
+                      Import audio files even if they don't have proper metadata tags
+                    </span>
+                  </div>
+                  <Switch
+                    checked={includeFilesWithoutMetadata}
+                    onCheckedChange={async (checked) => {
+                      setIncludeFilesWithoutMetadata(checked);
+                      await window.ipc.invoke("updateSettings", {
+                        ...settings,
+                        includeFilesWithoutMetadata: checked,
+                      });
+                      toast(
+                        <div className="flex w-fit items-center gap-2 text-xs">
+                          <IconCheck className="text-green-400" stroke={2} size={16} />
+                          Metadata settings updated. Rescan library to apply changes.
+                        </div>,
+                      );
+                    }}
                   />
-                  <Button
-                    className="w-fit justify-between text-xs text-nowrap"
-                    onClick={rescanLibrary}
-                  >
-                    <IconRefresh stroke={2} className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    className="w-fit justify-between text-xs text-nowrap"
-                    onClick={scanLibrary}
-                  >
-                    Update Music Folder
-                    {musicLoading ? (
-                      <Spinner className="h-3.5 w-3.5" />
-                    ) : (
-                      <IconArrowRight stroke={2} className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
                 </div>
               </div>
             </div>
