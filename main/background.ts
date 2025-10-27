@@ -72,6 +72,51 @@ let mainWindow: any;
 let miniPlayerWindow: any;
 let settings: any;
 
+// Function to create mini-player window
+const createMiniPlayer = async () => {
+  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+    miniPlayerWindow.show();
+    return;
+  }
+
+  miniPlayerWindow = createWindow("mini-player", {
+    width: 460,
+    height: 110,
+    minWidth: 400,
+    minHeight: 110,
+    maxWidth: 600,
+    maxHeight: 500,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: true,
+    minimizable: false,
+    maximizable: false,
+    skipTaskbar: true,
+    hasShadow: true,
+    roundedCorners: true,
+    vibrancy: "under-window",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      backgroundThrottling: false,
+    },
+  });
+
+  // Center the mini-player window on screen
+  miniPlayerWindow.center();
+
+  if (isProd) {
+    await miniPlayerWindow.loadURL("app://./mini-player");
+  } else {
+    const port = process.argv[2];
+    await miniPlayerWindow.loadURL(`http://localhost:${port}/mini-player`);
+  }
+
+  miniPlayerWindow.on("closed", () => {
+    miniPlayerWindow = null;
+  });
+};
+
 // Global cache for frequently accessed data
 const dataCache = {
   libraryStats: null,
@@ -188,40 +233,25 @@ const initializeLibrary = async () => {
     },
   });
 
-  // Function to create mini-player window
-  const createMiniPlayer = async () => {
+  // Auto show/hide mini-player when main window is minimized/restored
+  mainWindow.on("minimize", async () => {
+    logger.info("Main window minimized, showing mini-player");
+    await createMiniPlayer();
+  });
+
+  mainWindow.on("restore", () => {
+    logger.info("Main window restored, hiding mini-player");
     if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
-      miniPlayerWindow.show();
-      return;
+      miniPlayerWindow.close();
     }
+  });
 
-    miniPlayerWindow = createWindow("mini-player", {
-      width: 400,
-      height: 100,
-      frame: false,
-      transparent: true,
-      alwaysOnTop: true,
-      resizable: false,
-      minimizable: false,
-      maximizable: false,
-      skipTaskbar: true,
-      webPreferences: {
-        preload: path.join(__dirname, "preload.js"),
-        backgroundThrottling: false,
-      },
-    });
-
-    if (isProd) {
-      await miniPlayerWindow.loadURL("app://./mini-player");
-    } else {
-      const port = process.argv[2];
-      await miniPlayerWindow.loadURL(`http://localhost:${port}/mini-player`);
+  mainWindow.on("show", () => {
+    logger.info("Main window shown, hiding mini-player");
+    if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+      miniPlayerWindow.close();
     }
-
-    miniPlayerWindow.on("closed", () => {
-      miniPlayerWindow = null;
-    });
-  };
+  });
 
   ipcMain.on("quitApp", async () => {
     return app.quit();
@@ -784,20 +814,18 @@ ipcMain.handle("updateLastFmSettings", async (_, data) => {
   }
 });
 
-// Mini-player IPC handlers
-ipcMain.handle("show-mini-player", async () => {
-  try {
-    await createMiniPlayer();
-    return true;
-  } catch (error) {
-    logger.error("Failed to show mini-player:", error);
-    return false;
-  }
-});
-
+// Mini-player IPC handlers (auto-shown on minimize, auto-hidden on restore)
 ipcMain.on("mini-player-close", () => {
   if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
     miniPlayerWindow.close();
+  }
+  // Restore the main window when mini-player is manually closed
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.show();
+    mainWindow.focus();
   }
 });
 
@@ -825,10 +853,33 @@ ipcMain.on("mini-player-request-state", () => {
   }
 });
 
+ipcMain.on("mini-player-play-song", (_, queueIndex) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("mini-player-play-song", queueIndex);
+  }
+});
+
+ipcMain.on("mini-player-seek", (_, seekTime) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("mini-player-seek", seekTime);
+  }
+});
+
 // Forward playback updates to mini-player
 ipcMain.on("update-mini-player", (_, data) => {
   if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
     miniPlayerWindow.webContents.send("mini-player-update", data);
+  }
+});
+
+// Handle mini-player window resize
+ipcMain.on("mini-player-resize", (_, height: number) => {
+  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+    const currentBounds = miniPlayerWindow.getBounds();
+    miniPlayerWindow.setBounds({
+      ...currentBounds,
+      height: height
+    }, true); // animate the resize
   }
 });
 

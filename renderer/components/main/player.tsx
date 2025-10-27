@@ -1114,8 +1114,9 @@ export const Player = () => {
       song,
       isPlaying,
       currentTime: seekPosition,
+      queue: queue.slice(currentIndex + 1),
     });
-  }, [song, isPlaying, seekPosition]);
+  }, [song, isPlaying, seekPosition, queue, currentIndex]);
 
   useEffect(() => {
     // Listen for mini-player commands
@@ -1131,14 +1132,34 @@ export const Player = () => {
         song,
         isPlaying,
         currentTime: seekPosition,
+        queue: queue.slice(currentIndex + 1),
       });
     });
 
+    // Handle playing a song from the mini-player queue
+    const playSongListener = window.ipc.on("mini-player-play-song", (queueIndex: number) => {
+      // queueIndex is relative to currentIndex + 1 (the queue shown in mini-player)
+      const absoluteIndex = currentIndex + 1 + queueIndex;
+      if (absoluteIndex < queue.length) {
+        jumpToSong(absoluteIndex);
+      }
+    });
+
+    // Handle seeking from mini-player
+    const seekListener = window.ipc.on("mini-player-seek", (seekTime: number) => {
+      if (crossfadeControllerRef.current) {
+        crossfadeControllerRef.current.seek(seekTime);
+        setSeekPosition(seekTime);
+      }
+    });
+
     return () => {
-      window.ipc.off("mini-player-command", commandListener);
-      window.ipc.off("mini-player-request-state", stateRequestListener);
+      commandListener();
+      stateRequestListener();
+      playSongListener();
+      seekListener();
     };
-  }, [handlePlayPause, nextSong, previousSong, song, isPlaying, seekPosition]);
+  }, [handlePlayPause, nextSong, previousSong, song, isPlaying, seekPosition, queue, currentIndex, jumpToSong]);
 
   // Server-side rendering placeholder
   if (!isClient) {
