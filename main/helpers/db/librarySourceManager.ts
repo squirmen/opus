@@ -83,11 +83,21 @@ export class LibrarySourceManager {
 
   static async removeSource(sourceId: number): Promise<void> {
     try {
-      await db.delete(songs)
-        .where(eq(songs.sourceId, sourceId));
+      console.log(`[LibrarySourceManager] removeSource called with ID: ${sourceId}`);
 
-      await db.delete(librarySources)
-        .where(eq(librarySources.id, sourceId));
+      // Delete songs first
+      const deletedSongs = await db.delete(songs)
+        .where(eq(songs.sourceId, sourceId))
+        .returning({ id: songs.id })
+        .all();
+      console.log(`[LibrarySourceManager] Deleted ${deletedSongs.length} songs for source ${sourceId}`);
+
+      // Delete the library source
+      const deletedSource = await db.delete(librarySources)
+        .where(eq(librarySources.id, sourceId))
+        .returning()
+        .get();
+      console.log(`[LibrarySourceManager] Deleted source:`, deletedSource);
     } catch (error) {
       console.error("Failed to remove source:", error);
       throw new Error("Failed to remove library source");
@@ -96,9 +106,15 @@ export class LibrarySourceManager {
 
   static async toggleSource(sourceId: number, enabled: boolean): Promise<void> {
     try {
-      await db.update(librarySources)
+      console.log(`[LibrarySourceManager] toggleSource called with ID: ${sourceId}, enabled: ${enabled}`);
+
+      const updated = await db.update(librarySources)
         .set({ enabled })
-        .where(eq(librarySources.id, sourceId));
+        .where(eq(librarySources.id, sourceId))
+        .returning()
+        .get();
+
+      console.log(`[LibrarySourceManager] Toggled source:`, updated);
     } catch (error) {
       console.error("Failed to toggle source:", error);
       throw new Error("Failed to toggle library source");
@@ -155,13 +171,19 @@ export class LibrarySourceManager {
 
   static async renameSource(sourceId: number, newName: string): Promise<void> {
     try {
+      console.log(`[LibrarySourceManager] renameSource called with ID: ${sourceId}, newName: "${newName}"`);
+
       if (!newName || !newName.trim()) {
         throw new Error("Name cannot be empty");
       }
 
-      await db.update(librarySources)
+      const updated = await db.update(librarySources)
         .set({ name: newName.trim() })
-        .where(eq(librarySources.id, sourceId));
+        .where(eq(librarySources.id, sourceId))
+        .returning()
+        .get();
+
+      console.log(`[LibrarySourceManager] Renamed source:`, updated);
     } catch (error) {
       console.error("Failed to rename source:", error);
       throw new Error("Failed to rename library source");
