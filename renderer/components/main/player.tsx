@@ -441,39 +441,6 @@ export const Player = () => {
     };
   }, [song, lastFmSettings, lastFmStatus.isScrobbled]);
 
-  // Mini-player communication
-  useEffect(() => {
-    // Send playback state to mini-player
-    window.ipc.send("update-mini-player", {
-      song,
-      isPlaying,
-      currentTime: seekPosition,
-    });
-  }, [song, isPlaying, seekPosition]);
-
-  useEffect(() => {
-    // Listen for mini-player commands
-    const commandListener = window.ipc.on("mini-player-command", (command: string) => {
-      if (command === "play-pause") handlePlayPause();
-      if (command === "next") nextSong();
-      if (command === "previous") previousSong();
-    });
-
-    // Send state when mini-player requests it
-    const stateRequestListener = window.ipc.on("mini-player-request-state", () => {
-      window.ipc.send("update-mini-player", {
-        song,
-        isPlaying,
-        currentTime: seekPosition,
-      });
-    });
-
-    return () => {
-      window.ipc.off("mini-player-command", commandListener);
-      window.ipc.off("mini-player-request-state", stateRequestListener);
-    };
-  }, [handlePlayPause, nextSong, previousSong, song, isPlaying, seekPosition]);
-
   // Player control functions - Define handlePlayPause earlier to avoid reference error
   const handlePlayPause = useCallback(() => {
     if (!crossfadeControllerRef.current) return;
@@ -1139,6 +1106,39 @@ export const Player = () => {
 
   // Repeat functionality is handled by the onTrackEnd callback
 
+
+  // Mini-player communication - add after all functions are defined
+  useEffect(() => {
+    // Send playback state to mini-player
+    window.ipc.send("update-mini-player", {
+      song,
+      isPlaying,
+      currentTime: seekPosition,
+    });
+  }, [song, isPlaying, seekPosition]);
+
+  useEffect(() => {
+    // Listen for mini-player commands
+    const commandListener = window.ipc.on("mini-player-command", (command: string) => {
+      if (command === "play-pause") handlePlayPause();
+      if (command === "next") nextSong();
+      if (command === "previous") previousSong();
+    });
+
+    // Send state when mini-player requests it
+    const stateRequestListener = window.ipc.on("mini-player-request-state", () => {
+      window.ipc.send("update-mini-player", {
+        song,
+        isPlaying,
+        currentTime: seekPosition,
+      });
+    });
+
+    return () => {
+      window.ipc.off("mini-player-command", commandListener);
+      window.ipc.off("mini-player-request-state", stateRequestListener);
+    };
+  }, [handlePlayPause, nextSong, previousSong, song, isPlaying, seekPosition]);
 
   // Server-side rendering placeholder
   if (!isClient) {
