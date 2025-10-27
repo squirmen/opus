@@ -508,7 +508,7 @@ export default function Settings() {
                       <p className="text-sm font-medium">
                         {settings && settings.name
                           ? settings.name
-                          : "Wora User"}
+                          : "Opus User"}
                       </p>
                       <p className="opacity-50">A great listener of music.</p>
                     </div>
@@ -568,33 +568,41 @@ export default function Settings() {
                     </div>
                   </div>
                 </div>
-                <LibrarySourcesManager />
+              </div>
+            </div>
+          </div>
 
-                {/* Metadata Settings */}
-                <div className="mt-4 flex items-center justify-between rounded-lg border border-white/5 p-4">
-                  <div className="flex flex-col">
-                    <Label className="text-sm font-medium">Include Files Without Metadata</Label>
-                    <span className="text-xs opacity-50">
-                      Import audio files even if they don't have proper metadata tags
-                    </span>
-                  </div>
-                  <Switch
-                    checked={includeFilesWithoutMetadata}
-                    onCheckedChange={async (checked) => {
-                      setIncludeFilesWithoutMetadata(checked);
-                      await window.ipc.invoke("updateSettings", {
-                        ...settings,
-                        includeFilesWithoutMetadata: checked,
-                      });
-                      toast(
-                        <div className="flex w-fit items-center gap-2 text-xs">
-                          <IconCheck className="text-green-400" stroke={2} size={16} />
-                          Metadata settings updated. Rescan library to apply changes.
-                        </div>,
-                      );
-                    }}
-                  />
+          {/* Library Management Section */}
+          <div className="w-full">
+            <LibrarySourcesManager />
+          </div>
+
+          {/* Metadata Settings */}
+          <div className="w-full">
+            <div className="wora-border rounded-2xl p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col">
+                  <Label className="text-sm font-medium">Include Files Without Metadata</Label>
+                  <span className="text-xs opacity-50">
+                    Import audio files even if they don't have proper metadata tags
+                  </span>
                 </div>
+                <Switch
+                  checked={includeFilesWithoutMetadata}
+                  onCheckedChange={async (checked) => {
+                    setIncludeFilesWithoutMetadata(checked);
+                    await window.ipc.invoke("updateSettings", {
+                      ...settings,
+                      includeFilesWithoutMetadata: checked,
+                    });
+                    toast(
+                      <div className="flex w-fit items-center gap-2 text-xs">
+                        <IconCheck className="text-green-400" stroke={2} size={16} />
+                        Metadata settings updated. Rescan library to apply changes.
+                      </div>,
+                    );
+                  }}
+                />
               </div>
             </div>
           </div>

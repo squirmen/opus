@@ -263,7 +263,7 @@ const Navbar = () => {
               </Link>
             </TooltipTrigger>
             <TooltipContent side="right" sideOffset={25}>
-              <p>{settings && settings.name ? settings.name : "Wora User"}</p>
+              <p>{settings && settings.name ? settings.name : "Opus User"}</p>
             </TooltipContent>
           </Tooltip>
           <div className="wora-border flex w-18 flex-col items-center gap-10 rounded-2xl p-8 transition-all duration-300 ease-in-out">
